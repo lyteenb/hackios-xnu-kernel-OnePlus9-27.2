@@ -5,7 +5,7 @@
 This repository is a public, source-only integration snapshot for the OnePlus 9 Darwin 27.2 work.
 It is derived from:
 
-- `oosexgang/hackios-xnu-kernel` — the HakiOS kernel, loader, Darwin user-space tooling, device
+- `oosexgang/hakios-xnu-kernel` — the HakiOS kernel, loader, Darwin user-space tooling, device
   package format, tests, documentation and licence structure.
 - `b1ackm4x/hackios-xnu-kernel` — the earlier OnePlus 9 iOS 16.5 integration and the hardware facts
   used to prepare this tree.

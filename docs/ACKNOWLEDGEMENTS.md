@@ -8,7 +8,7 @@ SPDX 标识仍然有效。
 
 ### OOSEX GANG / HakiOS
 
-- 仓库：<https://github.com/oosexgang/hackios-xnu-kernel>
+- 仓库：<https://github.com/oosexgang/hakios-xnu-kernel>
 - 贡献：XNU 组装与补丁框架、HakiOS loader、设备包格式、驱动框架、Darwin 26/27 用户态工具、
   QEMU 工作台、文档和许可证/通知体系。
 - 本仓库的通用代码、目录结构和大量文档直接来自该上游。

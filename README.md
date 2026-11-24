@@ -11,7 +11,7 @@ Apple 的 IPSW、rootfs、cryptex、系统镜像、厂商固件或设备身份�
 
 本项目参考的两个主要上游：
 
-- [oosexgang/hackios-xnu-kernel](https://github.com/oosexgang/hackios-xnu-kernel)：HakiOS 内核、
+- [oosexgang/hakios-xnu-kernel](https://github.com/oosexgang/hakios-xnu-kernel)：HakiOS 内核、
   Darwin 用户态、loader、驱动框架和许可证/通知体系的来源。
 - [b1ackm4x/hackios-xnu-kernel](https://github.com/b1ackm4x/hackios-xnu-kernel)：此前一加 9 的
   iOS 16.5 集成经验、硬件事实和验证方法；其二进制、固件和发布包不随本仓库分发。
@@ -197,7 +197,7 @@ Actions。仓库不会修改系统或用户 PATH，工具路径应在单个 Powe
 ## 上游关系
 
 本仓库是面向 OnePlus 9 的整理/集成快照，不是 Apple 官方项目，也不是对上游历史的替代。需要跟进
-上游通用修复时，应优先查看 `oosexgang/hackios-xnu-kernel`；需要复核早期 OnePlus 9 的 16.5 结果时，
+上游通用修复时，应优先查看 `oosexgang/hakios-xnu-kernel`；需要复核早期 OnePlus 9 的 16.5 结果时，
 参考 `b1ackm4x/hackios-xnu-kernel`。`lyteenb/hackios-xnu-kernel` 只是 b1ackm4x 上游在 Windows
 下的复现和验证参考，不是本项目的第三个上游。本仓库只保留完成 27.2 RAM boot 验证所需的
 OnePlus 9 配置和公开说明。

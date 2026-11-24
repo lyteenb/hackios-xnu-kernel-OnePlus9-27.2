@@ -3,7 +3,7 @@
 
 ## 这是什么
 
-`hackios-xnu-kernel-OnePlus9-27.2` 是 HakiOS 的 OnePlus 9 Darwin 27.2 集成快照。它的目标不是
+本仓库是 HakiOS 的 OnePlus 9 Darwin 27.2 集成快照。它的目标不是
 “运行一个同名版本号”，而是把以下部分组成一条可以验证的启动链：
 
 1. Apple XNU 的公开源码组装与 HakiOS 覆盖层；
@@ -17,7 +17,7 @@
 
 ## 与两个上游的关系
 
-### `oosexgang/hackios-xnu-kernel`
+### `oosexgang/hakios-xnu-kernel`
 
 这是主要的源码上游。它提供：
 
@@ -84,7 +84,7 @@ GPU、USB、loader 和发布包流程。它帮助确认了：
 
 - 当前源码快照：`hakios-27.2-lemonade` 的 `8a61f288`。
 - 本仓库的 `main` 用于公开整理，不声称与上游历史线性对应。
-- 上游通用修复应先在 `oosexgang/hackios-xnu-kernel` 复核，再决定是否 cherry-pick。
+- 上游通用修复应先在 `oosexgang/hakios-xnu-kernel` 复核，再决定是否 cherry-pick。
 - OnePlus 9 的 16.5 硬件事实和早期集成应与 `b1ackm4x/hackios-xnu-kernel` 对照。
 - `lyteenb/hackios-xnu-kernel` 是 Windows 复现，不是上游来源。
 - 任何包含 Apple 资产的构建流程应留在私有仓库或私有 workflow 中，不进入本仓库。
