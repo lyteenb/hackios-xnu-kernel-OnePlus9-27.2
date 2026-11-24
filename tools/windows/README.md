@@ -31,9 +31,12 @@ The builder calls the repository's `tools/image.py`, `mkpayload.py` and `mkboot.
 `boot.img`, `kernel`, `root.apfs`, `system.apfs`, `launch.py`, `manifest.json`, `SHA256SUMS`, and
 Windows start/return helpers.
 
+Prepare and verify the UEFI/DTB directory and serial hash for your phone; do not reuse device-specific inputs from another device.
+
 The builder itself does not run `su`. Obtaining `device-tree.dtb` or vendor firmware from a phone may
-require root depending on how the private UEFI input is prepared. The current `phone_27_2_perf` profile
-does not need GPU, Wi-Fi, ADSP, audio or camera firmware; S6SY792 touch needs no firmware upload.
+require root/ADB depending on how the private UEFI input is prepared. The current `phone_27_2_perf` profile
+does not need GPU, Wi-Fi, ADSP, audio or camera firmware; S6SY792 touch needs no firmware upload. Even so,
+prepare and hash-check the current device's UEFI/DTB before building `boot.img`.
 
 ## QEMU check
 

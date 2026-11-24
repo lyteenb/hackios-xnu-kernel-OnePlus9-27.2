@@ -28,14 +28,14 @@
 
 | 输入 | 来源 | 当前 perf 配置是否需要 |
 | --- | --- | --- |
-| `Uefi/SILICIUM_UEFI.fd`、`BootShim.bin`、`device-tree.dtb` | OnePlus 9 的设备/UEFI 私有输入 | 需要；已有同一设备输入时可复用，不必每次重新导出 |
+| `Uefi/SILICIUM_UEFI.fd`、`BootShim.bin`、`device-tree.dtb` | OnePlus 9 的设备/UEFI 私有输入 | 请按自己的设备准备并核对；不要直接套用其他设备的数据 |
 | `Release/system27-prune.apfs`、`root26-darwin.apfs`、`loader.efi` | 合法 IPSW 和私有镜像构建 | 需要；不是从 Android root 目录直接读取 |
-| `HardwareSerialSha256` | ADB serial 的 SHA-256 | 需要；只保存哈希，不需要 root |
+| `HardwareSerialSha256` | 当前设备的 ADB serial 的 SHA-256 | 按自己的设备计算；只保存哈希，不需要 root |
 | GPU/Wi-Fi/ADSP/audio/camera firmware | 本机 Android/vendor 文件 | **当前配置不需要**：`gpu=0`、`wifi=0`、`adsp=0`、`sound=0`、`cam=0` |
 | S6SY792 固件 | 触控控制器 | **不需要上传固件**；驱动只做板级 I2C 初始化和扫描/上报命令 |
 
-因此：同一台已准备的 OnePlus 9、已有 UEFI/DTB 输入和合法 IPSW 时，不需要每次 root 导出；
-换一台手机或启用 GPU/Wi-Fi/音频等外设时，才需要为该设备补充相应私有输入。
+请按自己的设备准备并核对 UEFI、DTB、设备身份和其他私有输入；
+确认这些文件属于当前设备后才使用。启用 GPU/Wi-Fi/音频等外设时，还要为该设备补充相应的 vendor firmware。
 
 ## 1. 在 GitHub Actions 构建公开部分
 

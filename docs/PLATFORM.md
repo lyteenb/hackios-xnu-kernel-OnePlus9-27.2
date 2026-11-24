@@ -91,7 +91,7 @@ adb devices
 fastboot devices
 ```
 
-确认：
+确认（请按自己的手机准备 UEFI/DTB/firmware/serial hash）：
 
 1. `adb devices` 中目标手机为 `device`，不是 `unauthorized`；
 2. 手机能进入 bootloader，`fastboot devices` 能看到设备；
