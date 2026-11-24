@@ -83,6 +83,7 @@ ADB 授权和数据备份。这里不包含绕过厂商限制或设备安全的�
 | `kernel/` | Apple XNU 的组装、补丁、覆盖层和构建脚本 |
 | `darwin/`, `userland/`, `components/` | Darwin 用户态、镜像工具和兼容组件 |
 | `tools/`, `workbench/` | 主机工具和无需手机的测试 |
+| `tools/windows/` | Windows 组包、RAM boot 启动器和 QEMU 验证脚本 |
 | `Documentation/` | 上游架构、移植、QEMU、驱动和故障排查文档 |
 | `docs/` | 本 fork 的平台、状态、限制、复现和致谢说明 |
 | `.github/workflows/` | 仅在 GitHub Actions 运行的公开 kernel/loader/Metal 构建 |
@@ -124,7 +125,7 @@ Actions。仓库不会修改系统或用户 PATH，工具路径应在单个 Powe
 1. 在 GitHub Actions 构建 kernel 和 loader。
 2. 在自己的私有环境/私有 workflow 中解包自己合法持有的 `iPhone12,1` 27.2 `24B119` IPSW，
    生成 `root.apfs` 与 `system.apfs`；这些文件不得提交或公开上传。
-3. 将 kernel、root/system 镜像、loader 和设备启动配置按发布包格式组合，并用 SHA-256 清单校验。
+3. 按 [Windows 组包脚本](tools/windows/README.md) 将 kernel、root/system 镜像、loader 和设备启动配置组合，并用 SHA-256 清单校验。
 4. 先在 QEMU 验证锁屏/启动链，再连接 OnePlus 9。
 5. 真机只执行：
 

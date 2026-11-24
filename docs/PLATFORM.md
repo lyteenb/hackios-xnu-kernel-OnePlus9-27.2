@@ -29,6 +29,7 @@
 | `adb` | Android 侧连接、重启到 bootloader | 需要设备授权 |
 | `fastboot` | 启动 bootloader 和 RAM loader | 仅使用 `fastboot boot` |
 | QEMU（可选） | 在真机前验证启动链 | `qemu-system-aarch64` |
+| 仓库脚本 | 组包、启动和 QEMU | [tools/windows/README.md](../tools/windows/README.md) |
 | UEFI firmware（可选） | QEMU 的 loader 启动 | 用户自行准备，不入库 |
 
 本仓库不修改系统或用户 `PATH`。如果工具没有安装在系统目录，可以在当前 PowerShell 会话中临时设置：

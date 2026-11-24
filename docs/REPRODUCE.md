@@ -66,7 +66,37 @@ python3 darwin/tools/mkimage26.py --prune "<IOS_DIR>/system27-prune.apfs"
 如果你的私有流程使用 GitHub Actions，使用私有仓库/私有 workflow，并确保 artifact 只对授权用户可见。
 不要使用公开仓库的 release 或公开 transfer branch 传输 Apple 资产。
 
-## 3. 组合并校验发布包
+## 3. Windows 公开工具
+
+私有输入准备好后，公开仓库里的 Windows 脚本负责组包和 QEMU 检查，不修改 PATH，也不上传资产：
+
+```powershell
+.\tools\windows\build_ramboot_package.ps1 `
+  -Release C:\path\to\private\release `
+  -Kernel C:\path\to\mach.development.bcm2837 `
+  -Uefi C:\path\to\oneplus9-uefi `
+  -Out C:\path\to\ramboot-package `
+  -HardwareSerialSha256 <64-character-sha256>
+```
+
+`HardwareSerialSha256` 是 ADB serial 的 SHA-256，不是明文 serial。详细说明见
+[`tools/windows/README.md`](../tools/windows/README.md)。组包完成后先运行：
+
+```powershell
+python .\launch.py verify
+```
+
+QEMU 检查：
+
+```powershell
+.\tools\windows\run_ramboot_qemu.ps1 `
+  -Release C:\path\to\private\release `
+  -Kernel C:\path\to\mach.development.bcm2837 `
+  -Qemu C:\path\to\qemu-system-aarch64.exe `
+  -QemuShare C:\path\to\qemu\share
+```
+
+## 4. 组合并校验发布包
 
 推荐发布包结构：
 
@@ -99,7 +129,7 @@ python .\launch.py status
 
 `verify` 必须成功。任何文件大小或哈希不匹配都不要继续启动。
 
-## 4. 先做 QEMU 验证（可选但强烈建议）
+## 5. 先做 QEMU 验证（可选但强烈建议）
 
 QEMU 需要自己的 UEFI firmware、QEMU 安装和已组装的镜像。已完成的验证使用 Windows 原生 QEMU、
 AArch64 UEFI、ramfb、virtio input 和一条 loader payload。
@@ -125,7 +155,7 @@ apfs_volume=md0,v=1 apfs_volume_at=/private/preboot
 
 QEMU 只用于验证启动链，不用于证明 OnePlus 9 的 panel、touch、UFS、Wi-Fi 或电池驱动可用。
 
-## 5. 真机 RAM boot
+## 6. 真机 RAM boot
 
 先确认 Android 和 bootloader：
 
@@ -157,7 +187,7 @@ python .\launch.py status
 python .\launch.py log
 ```
 
-## 6. 返回 Android
+## 7. 返回 Android
 
 优先使用发布包提供的方式：
 
@@ -180,7 +210,7 @@ adb shell getprop sys.boot_completed
 
 只有返回 `1` 才说明 Android 启动完成。
 
-## 7. 绝对禁止的操作
+## 8. 绝对禁止的操作
 
 以下命令不属于本项目，可能破坏分区、bootloader 状态或数据：
 
@@ -193,7 +223,7 @@ fastboot set_active ...
 不要用刷写分区来修复实验性启动失败。RAM boot 的失败处理是停止、重启回 Android、检查包和日志，
 而不是改写设备分区。
 
-## 8. 复现验收清单
+## 9. 复现验收清单
 
 - [ ] 公开 Actions 构建成功；
 - [ ] `SHA256SUMS` / manifest 校验通过；
