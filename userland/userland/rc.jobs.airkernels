@@ -1,0 +1,86 @@
+# Commands run by the launchd job com.hakios.demo (RC_JOBS=rc.jobs.airkernels).
+#
+# Every compute kernel of the corpus, dispatched on the Adreno (../components/metal/docs/air.md section 5).
+# air_run waits on a fence, so a dispatch the GPU does not finish says so and exits
+# non-zero rather than printing the buffer the harness filled itself.
+#
+# Nothing here says a kernel is right. There is no executed reference for these anywhere:
+# softpipe runs 6 of the 47, so a number out of the Adreno has nothing on this machine to
+# be compared against for the rest. Read the lines as finished or not, never as correct.
+#
+# The order is not cosmetic. Two kernels hang the GPU on their own -- measured on a fresh
+# boot, each failing at the fourth dispatch: MetalFaceMask_GenerateToothMask
+# (logs/190426-run.log, the list reversed) and fbs_bistochastize_iter
+# (logs/190715-run.log, those kernels run first). After one hang this port's driver
+# latches -- gpuWait in BoardGPU.cpp returns false at once from then on -- so the rest
+# of a boot is unmeasured rather than wrong. Both go last, where a hang costs least.
+#
+# MetalFaceMask_GenerateMask is NOT in that pair, though an earlier version of this file
+# said so: it is only ever the first failure of a forward run, which is what any kernel at
+# that position would be. Which of the other 22 hang on their own needs a boot each.
+#
+# A canary runs first and after every eight kernels: probe_one_scalar stores a constant to
+# word 0 unconditionally, so when it stops writing the GPU has stopped answering. It needs
+# EXTRA_SHARE to carry ../components/metal/tools/air's probe modules; without them those lines fail to open a
+# file and the rest of the list still runs.
+#
+# The first line is the shader M1 is stated against, with --disasm: it proves the GPU is
+# there and that ir3 compiled what ran, which the screen's name alone does not.
+#
+/hakios/bin/air_run --disasm /System/Library/Extensions/AppleMetalGLRenderer.bundle/default.metallib clearFragment01
+/hakios/bin/air_run /hakios/share/probes/probe_one_scalar.bc
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib BlitLumaKernel_Uint
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib BlitChromaKernel_Uint
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib BlitLumaKernel_UintPacked
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib BlitChromaKernel_UintPacked
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib BlitLumaKernel_Unorm
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib BlitChromaKernel_Unorm
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib BlitKernel_Unorm
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib FilmGrainLumaKernel_Uint
+/hakios/bin/air_run /hakios/share/probes/probe_one_scalar.bc
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib FilmGrainChromaKernel_Uint
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib FilmGrainLumaKernel_Unorm
+/hakios/bin/air_run /System/Library/VideoDecoders/AV1SW.metallib FilmGrainChromaKernel_Unorm
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_Clear
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_InitMinMax
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_MinMax
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_CalcCubeInputScaling
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_PopulateCube
+/hakios/bin/air_run /hakios/share/probes/probe_one_scalar.bc
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_DilateCubeLuma
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_DilateCubeChroma1
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_DilateCubeChroma2
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_ErodeCubeLuma
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_ErodeCubeChroma1
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_ErodeCubeChroma2
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_InitSpanTable
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_GenerateMask
+/hakios/bin/air_run /hakios/share/probes/probe_one_scalar.bc
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_ConnectSpans
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_PropagateParents
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_PropogateAssociations
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_ResolveAssociations
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_DrawSpans
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_DrawEye
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_bistochastize_init
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_bistochastize_final
+/hakios/bin/air_run /hakios/share/probes/probe_one_scalar.bc
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_pcg_init
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_pcg_iter1
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_pcg_iter2
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_pcg_iter3
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_slice
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_slice_trilinear
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib spillCorrectionPreProcess
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib spillCorrectionPostProcess
+/hakios/bin/air_run /hakios/share/probes/probe_one_scalar.bc
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib image_calcminmax0
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib image_calcminmax1
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib image_calcminmax2
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib confidence
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_AddSeedPoint
+/hakios/bin/air_run /hakios/share/probes/probe_one_scalar.bc
+#
+# the two measured as hanging on their own, last of all:
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_bistochastize_iter
+/hakios/bin/air_run /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_GenerateToothMask

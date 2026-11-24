@@ -1,0 +1,494 @@
+#!/bin/bash
+# bench -- the phone on the bench: start the resident loader, give it images, run a kernel, fetch its log.
+# Everything is in the phone's RAM: nothing here flashes, erases or writes its storage, and a reboot
+# brings Android back.
+#
+#   bench state            where the phone is now, and what that means for bench
+#   bench enter            start the resident loader (from Android or the phone's own fastboot)
+#   bench ramdisk [FILE]   send the system image (default $IOS/system.apfs) once; it stays in the phone's RAM
+#                       across runs and is the root file system (/dev/md0). "bench ramdisk none" drops it
+#   bench run [N]          send the kernel and the small image, run (stopping at checkpoint N), fetch the log
+#   bench log              the loader's log; during a run, the kernel's so far as well
+#   bench screenshot [F]   the phone's screen as a PNG (default logs/screen.png); during a run too
+#   bench recording [F]    the screen recording the last run made (rec_secs=N), as a video
+#   bench sound [F]        the sound the last run recorded (rec_sound=N), as a WAV file
+#   bench stop             end the run in progress (the kernel returns as when its time is up)
+#   bench selftest         only the kernel-to-loader return path
+#   bench hang             make the loader hang on purpose: tests the watchdog
+#   bench memmap           the phone's memory map as its firmware reports it
+#   bench reboot           cold-reset the phone (back to Android)
+#   bench reload           restart into a freshly built loader (after arch/arm64/boot/build.sh)
+#   bench fresh            the loader started anew if a kernel has run in this session of it, and the resident image
+#                       sent again (scripts/phone-day.sh, before each run but the first: one kernel a session)
+#
+# Which phone: BENCH_BOARD (or HAKIOS_BOARD), else the only device package here with a uefi { } node
+# (tools/device.py add NAME; HAKIOS_DEVICES as for the builds). Its board file gives the boot arguments
+# of a plain run (boot { }: bootargs, cpus) and what its own fastboot calls it (boot { }: fastboot-product):
+# bench starts nothing on a phone that answers another name. Its UEFI build is in firmware/NAME/uefi/.
+#
+# Environment:
+#   BENCH_DEFCONFIG  the boot arguments of arch/arm64/configs/NAME_defconfig (tools/defconfig.py --list), after the
+#                board's and before BENCH_CMDLINE's, each replacing one of the same name
+#   BENCH_CMDLINE   boot arguments of this run, NAME or NAME=VALUE: each replaces the board's argument of
+#                that name or is added (BENCH_CMDLINE="gpu=1 -v"); one of NAME=KEY=VALUE by NAME=KEY, so that
+#                several stay (caenv=CA_A=1 caenv=CA_B=1); BENCH_PLAIN=1: these alone, without the board's
+#   BENCH_SECS      seconds after which the kernel returns to the loader on its own (default 180; 0: never)
+#   BENCH_FOLLOW=N  fetch the kernel's log every N seconds of a run (default 10; empty: never), so that a kernel
+#                that hangs leaves what it said in logs/TIME-run.log.live
+#   BENCH_KERNEL    the kernel (default: kernel/build.sh's, $XNU_SRC/BUILD/obj/mach.development.bcm2837)
+#   BENCH_IDENTITY  which iPhone Darwin is told it is, carried in the payload (arch/arm64/boot/src/identity_given.c): an
+#                iPhone's DeviceTree.bin or a blob mkidentity.py --blob made (default firmware/NAME/identity.bin when it is
+#                there); for a loader built without one, as an image's is (Documentation/images.md)
+#   BENCH_RAMDISK   the small image sent with the kernel, mounted on /hakios (default $IOS/root26-darwin.apfs, the one
+#                darwin/userland/root26-darwin.sh writes, else $IOS/root.apfs; none: none)
+#   IOS          the extracted IPSW and the images made from it (default: ios27 beside the repository)
+#   BENCH_HOME=fastboot   after a hang, keep the phone in its bootloader instead of Android: the next run
+#                starts at once. BENCH_REBOOT_AFTER=1: back to Android when a run is over (it charges there)
+#
+# One phone, several working copies: a run holds a lock outside all of them; while it lasts only state,
+# screenshot, log, stop and reboot are taken. stop and reboot of another copy's run need BENCH_FORCE=1.
+# The resident system image outlives runs and copies: `ramdisk` notes who sent what, `run` says so.
+cd "$(dirname "$(readlink -f "$0")")" || exit 1
+# (this was ./xl: what was set for it under its former names still counts, unless the new name is set)
+for v in BOARD DEFCONFIG CMDLINE PLAIN SECS FOLLOW FOLLOW_KEEP KERNEL RAMDISK HOME REBOOT_AFTER FORCE; do
+	o=XL_$v n=BENCH_$v
+	[ -z "${!n+x}" ] && [ -n "${!o+x}" ] && export "$n=${!o}"
+done
+TOP=$PWD
+source kernel/env.sh
+# shellcheck source=build.config.bench
+source "$HAKIOS/build.config.bench"
+IOS=${IOS:-$(cd .. && pwd)/ios27}
+K=${BENCH_KERNEL:-$XNU_SRC/BUILD/obj/mach.development.bcm2837}
+L=arch/arm64/boot/loader.efi
+mkdir -p logs
+PHONE=${XDG_RUNTIME_DIR:-/tmp}/hakios-phone
+# adb's server inherits every open descriptor: started during a run it would keep the run's lock (8)
+adb() { command adb "$@" 8>&-; }
+# one fastboot at a time (a run in one terminal, a screenshot in another)
+fb() { flock -w 90 "$PHONE.lock" timeout "${FB_TIMEOUT:-10}" fastboot "$@" 2>&1; }
+say() { echo "bench: $*"; }
+die() { echo "bench: $*" >&2; exit 1; }
+
+# --- the board ---------------------------------------------------------------------------------
+# NAME, then KEY=VALUE lines: what bench needs of the board file
+board_info() {
+	python3 - "${BENCH_BOARD:-${HAKIOS_BOARD:-}}" <<'PY'
+import sys
+sys.path.insert(0, 'tools')
+import boards
+name = sys.argv[1] or None
+found = {n: b for n, b in boards.load()[1].items() if 'uefi' in b}
+if name is None:
+    if len(found) != 1:
+        sys.exit('bench: which phone? BENCH_BOARD=NAME (here: ' + (', '.join(sorted(found)) or
+                 'no package with a uefi { } node; tools/device.py add NAME') + ')')
+    name = next(iter(found))
+if name not in found:
+    sys.exit(f'bench: no board "{name}" with a uefi {{ }} node (tools/boards.py list)')
+boot = found[name].get('boot', {})
+print(name)
+print('product=' + boot.get('fastboot_product', ''))
+print('cpus=' + str(boot.get('cpus', '')))
+print('bootargs=' + ' '.join(boot.get('bootargs', [])))
+PY
+}
+INFO=$(board_info) || exit 1
+BOARD=$(sed -n 1p <<< "$INFO")
+PRODUCT=$(sed -n 's/^product=//p' <<< "$INFO")
+CPUS=$(sed -n 's/^cpus=//p' <<< "$INFO")
+BOARD_ARGS=$(sed -n 's/^bootargs=//p' <<< "$INFO")
+
+# --- where the phone is ------------------------------------------------------------------------
+# One word: loader (ours, answering), loader-busy (ours, not answering in time), fastboot (the phone's
+# bootloader), fastbootd (Android's fastboot in user space: it cannot boot an image), android, recovery,
+# unauthorized (Android, but this computer is not allowed on adb), absent.
+# Each is asked of the USB device itself, not guessed from what did not answer: fastboot lists ours and
+# the phone's alike, so a loader too busy to say its product is not taken for the phone's bootloader.
+fastboot_serials() { fastboot devices 2>/dev/null | awk '$2 == "fastboot" { print $1 }'; }
+state() {
+	if [ -n "$(fastboot_serials)" ]; then
+		local product
+		product=$(FB_TIMEOUT=5 fb getvar product | sed -n 's/^product: *//p')
+		case "$product" in
+		xnuloader) echo loader ;;
+		"") # no answer: our loader during a kernel run, or a USB link that is still coming up
+			if [ -f "$PHONE.ours" ]; then echo loader-busy; else echo fastboot; fi ;;
+		*)	if FB_TIMEOUT=5 fb getvar is-userspace | grep -q 'is-userspace: yes'; then echo fastbootd; else echo fastboot; fi ;;
+		esac
+		return
+	fi
+	rm -f "$PHONE.ours"                 # (no loader of ours is on USB now)
+	# (adb devices and not adb get-state: the first adb command after the computer starts also starts adb's
+	# server and says so, and that answer was taken for no phone at all)
+	case "$(adb devices 2> /dev/null | awk -F '\t' 'NF == 2 { print $2; exit }')" in
+	device) echo android ;;
+	recovery | sideload | rescue) echo recovery ;;
+	unauthorized) echo unauthorized ;;
+	*) echo absent ;;
+	esac
+}
+describe() {
+	case "$1" in
+	loader) echo "in the resident loader ($(FB_TIMEOUT=5 fb getvar board | sed -n 's/^board: *//p')), ready for a run" ;;
+	loader-busy) echo "in the resident loader, which is not answering: a kernel is running, or has hung (the watchdog resets it)" ;;
+	fastboot) echo "in its own bootloader (fastboot): bench enter starts the loader from here" ;;
+	fastbootd) echo "in Android's fastbootd, which cannot boot an image: reboot it to the bootloader (fastboot reboot bootloader)" ;;
+	android) echo "in Android: bench enter takes it to its bootloader and starts the loader" ;;
+	recovery) echo "in recovery: adb reboot bootloader, then bench enter" ;;
+	unauthorized) echo "in Android, but this computer is not allowed on adb: accept the prompt on the phone's screen" ;;
+	absent) echo "not on USB: off, on its logo, or on another cable" ;;
+	esac
+}
+wait_for() { # wait_for STATE SECONDS
+	local i
+	for ((i = 0; i < $2; i += 2)); do [ "$(state)" = "$1" ] && return 0; sleep 2; done
+	return 1
+}
+
+# After a hang the watchdog resets the phone. What comes up is Android, or its bootloader, or the logo
+# (where nothing reaches it over USB). BENCH_HOME=fastboot: keep it in the bootloader instead.
+recover_phone() {
+	local i s
+	rm -f "$PHONE.ours"
+	for ((i = 0; i < 150; i += 3)); do
+		s=$(state)
+		if [ "${BENCH_HOME:-android}" = fastboot ]; then
+			case "$s" in
+			fastboot) say "the phone is back in its bootloader (BENCH_HOME=fastboot)"; return 0 ;;
+			android) say "the phone came up in Android: sending it to its bootloader"; adb reboot bootloader ;;
+			loader*) fb reboot > /dev/null ;;
+			esac
+		else
+			case "$s" in
+			android) say "the phone is back in Android"; return 0 ;;
+			fastboot) say "the phone stopped in its bootloader: sending it on to Android"; timeout 10 fastboot reboot > /dev/null 2>&1 ;;
+			loader*) fb reboot > /dev/null ;;
+			esac
+		fi
+		sleep 3
+	done
+	say "the phone has not come back ($(describe "$(state)"))."
+	say "  hold the power button for about 15 seconds; it restarts into Android."
+	say "  for the bootloader, hold power and volume-down while it restarts."
+	return 1
+}
+
+# The phone's own bootloader must be this board's: an image for another memory map is not started.
+check_product() {
+	[ -n "$PRODUCT" ] || return 0
+	local product
+	product=$(FB_TIMEOUT=5 fb getvar product | sed -n 's/^product: *//p')
+	[ "$product" = "$PRODUCT" ] && return 0
+	die "the phone's bootloader says it is \"$product\", the board $BOARD is \"$PRODUCT\": nothing started (BENCH_BOARD)"
+}
+
+enter() {
+	local s
+	s=$(state)
+	case "$s" in
+	loader) ;;
+	android)
+		adb reboot bootloader
+		wait_for fastboot 60 || die "the phone did not reach its bootloader ($(describe "$(state)"))" ;;
+	fastboot) ;;
+	absent)
+		say "waiting for the phone (Android or its bootloader)..."
+		local i
+		for ((i = 0; i < 180; i += 3)); do [ "$(state)" != absent ] && break; sleep 3; done
+		[ "$(state)" = absent ] && die "the phone is $(describe absent)"
+		enter; return ;;
+	*) die "the phone is $(describe "$s")" ;;
+	esac
+	if [ "$s" = loader ]; then
+		local board
+		board=$(FB_TIMEOUT=5 fb getvar board | sed -n 's/^board: *//p')
+		[ -z "$board" ] || [ "$board" = "$BOARD" ] ||
+			die "the resident loader took the phone for \"$board\", not $BOARD: bench reboot, then again"
+		return 0
+	fi
+	check_product
+	[ -f $L ] || die "no $L: arch/arm64/boot/build.sh"
+	arch/arm64/boot/mkpayload.py -o usb-payload.bin loader.efi=$L --usb > /dev/null || die "the payload was not made"
+	arch/arm64/boot/mkboot.py --board "$BOARD" -p usb-payload.bin -o resident.img > /dev/null || exit 1
+	# Right after the phone enters its bootloader the first "boot" is sometimes not taken: twice.
+	for _ in 1 2; do
+		FB_TIMEOUT=40 fb boot resident.img | grep -q OKAY || { sleep 3; continue; }
+		touch "$PHONE.ours"
+		sleep 6
+		wait_for loader 30 && { rm -f "$PHONE.ran"; resident_again; return 0; }
+		[ "$(state)" = fastboot ] || break
+	done
+	die "the loader did not come up on USB ($(describe "$(state)"))"
+}
+
+# A loader started anew has no resident image: the phone went back to Android in between (the loader's watchdog
+# resets it after 180 s without a word from this machine -- a build between two runs is enough), and a run would
+# have no root ("exec of /sbin/launchd failed, errno 2"). The image the record names is sent again if it is small
+# (a flashboot image: 4 MB, a second); a big one is only named.
+resident_again() {
+	local rwho rwhat rsize
+	[ -s "$PHONE.ramdisk" ] || return 0
+	IFS=$'\t' read -r rwho rwhat rsize < "$PHONE.ramdisk"
+	rm -f "$PHONE.ramdisk"
+	if [ -f "$rwhat" ] && [ "$(stat -c %s "$rwhat")" = "$rsize" ] && [ "$rsize" -le $((64 << 20)) ] &&
+		fb oem ramdisk | grep -q OKAY && FB_TIMEOUT=600 fb stage "$rwhat" | grep -q OKAY; then
+		printf '%s\t%s\t%s\n' "$rwho" "$rwhat" "$rsize" > "$PHONE.ramdisk"
+		say "the loader was started anew: its resident image sent again ($rwhat)"
+	else
+		say "the loader was started anew, without the resident image $rwhat: send it again (bench ramdisk FILE)" >&2
+	fi
+}
+
+# staged FILE OEM-COMMAND [SECONDS]: what the command stages, fetched into FILE -- the two under one lock, so that no other
+# fastboot comes between them (a screenshot taken in another terminal during a run stages the screen in the log's place), and
+# FILE replaced only by a whole fetch (a phone that resets during one leaves the last one there)
+staged() {
+	local file=$1 wait=${3:-20}
+	rm -f "$file.new"
+	# shellcheck disable=SC2086  # (the command's words: "oem log" is two of them for fastboot)
+	(flock -w 90 9 || exit 1
+		timeout 10 fastboot $2 2>&1 | grep -q OKAY || exit 1
+		timeout "$wait" fastboot get_staged "$file.new" > /dev/null 2>&1) 9> "$PHONE.lock" &&
+		[ -s "$file.new" ] && mv "$file.new" "$file"
+}
+
+fetch_log() { # fetch_log FILE: the loader's log, and the last run's kernel log after it, as text
+	staged "$1.raw" "oem log" && tr -d '\0' < "$1.raw" > "$1" && rm -f "$1.raw"
+}
+
+# The boot arguments of the run: the board's, with BENCH_CMDLINE's in place of those of the same name
+run_args() {
+	local preset=
+	if [ -n "${BENCH_DEFCONFIG:-}" ]; then
+		preset=$(tools/defconfig.py "$BENCH_DEFCONFIG") || return 1
+	fi
+	python3 - "$BOARD_ARGS" "$preset ${BENCH_CMDLINE:-}" "${BENCH_PLAIN:-}" "$CPUS" <<'PY'
+import sys
+board, run, plain, cpus = sys.argv[1].split(), sys.argv[2].split(), sys.argv[3], sys.argv[4]
+arguments = {}
+# (NAME=KEY=VALUE, as caenv=CA_SOMETHING=1, is one of several of that NAME, one for each KEY: its KEY is in the name it
+# replaces by -- two caenv= in BENCH_CMDLINE used to leave only the second)
+for argument in ([] if plain else board + ([f'cpus={cpus}'] if cpus else [])) + run:
+    parts = argument.split('=', 2)
+    arguments['='.join(parts[:2]) if len(parts) == 3 else parts[0]] = argument
+print(' '.join(arguments.values()))
+PY
+}
+
+run() { # run OEM-COMMAND LABEL
+	if [ "$(state)" = loader ] && [ -f "$PHONE.ran" ]; then
+		say "warning: a kernel has already run in this session of the loader; a second one in one session has died at once every time it was tried"
+	fi
+	enter || return 1
+	exec 8> "$PHONE.run"
+	flock -n 8 || { say "a run is in progress, started from $(cat "$PHONE.who" 2> /dev/null) (bench stop ends it)"; return 1; }
+	pwd > "$PHONE.who"
+	local stamp log result
+	stamp=$(date +%H%M%S)
+	log="logs/$stamp-$2.log"
+	if [ "$1" != "oem selftest" ]; then
+		[ -f "$K" ] || die "no kernel $K: kernel/build.sh"
+		# (the kernel knows the boards it was built with, build/boards' table, each by its name: one built before this
+		# phone's package was here finds no board on it, and every driver of the phone stays off)
+		python3 -c 'import sys; sys.exit(b"\0" + sys.argv[2].encode() + b"\0" not in open(sys.argv[1], "rb").read())' "$K" "$BOARD" ||
+			say "warning: $K does not know $BOARD: it was built before the package was here, and every driver of the phone stays off (kernel/build.sh)" >&2
+		# (Darwin 26/27's, root26-darwin.sh's, when it is there; else the first generation's)
+		local rd=${BENCH_RAMDISK:-$IOS/root26-darwin.apfs}
+		[ -n "${BENCH_RAMDISK:-}" ] || [ -f "$rd" ] || rd=$IOS/root.apfs
+		case "$rd" in
+		none) rd= ;;
+		*) [ -f "$rd" ] || die "no small image $rd (BENCH_RAMDISK)" ;;
+		esac
+		if [ -s "$PHONE.ramdisk" ]; then
+			local rwho rwhat rsize
+			IFS=$'\t' read -r rwho rwhat rsize < "$PHONE.ramdisk"
+			[ "$rwho" = "$TOP" ] || say "the resident image was sent from $rwho: $rwhat, $((rsize / 1048576)) MB" >&2
+		else
+			say "nothing here recorded what the resident image is; if this run needs one, send it (bench ramdisk)" >&2
+		fi
+		local args
+		args=$(run_args) || return 1
+		# a run about Wi-Fi is given this phone's own radio address: firmware/NAME/wifi-mac, one line
+		case " $args " in
+		*" wifi="*) [ -s "firmware/$BOARD/wifi-mac" ] && args="$args wifi_mac=$(tr -d ' \n\r' < "firmware/$BOARD/wifi-mac")" ;;
+		esac
+		say "$BOARD: $args"
+		local identity=${BENCH_IDENTITY:-firmware/$BOARD/identity.bin}
+		if [ -s "$identity" ]; then
+			# (a device tree made into the blob the loader reads; a blob as it is)
+			if [ "$(head -c 4 "$identity")" != IDNT ]; then
+				python3 arch/arm64/boot/mkidentity.py --blob run-identity.bin "$identity" 2> /dev/null || die "no identity made of $identity"
+				identity=run-identity.bin
+			fi
+			say "identity: $identity"
+		elif [ -n "${BENCH_IDENTITY:-}" ]; then
+			die "no identity $BENCH_IDENTITY (BENCH_IDENTITY)"
+		else
+			identity=
+		fi
+		arch/arm64/boot/mkpayload.py -o run-payload.bin kernel="$K" ${rd:+"ramdisk=$rd"} ${identity:+"identity=$identity"} \
+			--cmdline "loader_return_after=${BENCH_SECS:-180} epoch=$(date +%s) $args" > /dev/null || return 1
+		FB_TIMEOUT=60 fb stage run-payload.bin | grep -q OKAY || { say "the upload failed"; return 1; }
+	fi
+	fb $1 > /dev/null
+	if [ "$1" != "oem selftest" ]; then
+		# the loader goes on answering during a run: ask until the result is no longer "running", and
+		# fetch the log as it stands every BENCH_FOLLOW seconds, so that a phone that resets leaves it
+		local follow=${BENCH_FOLLOW-10} deadline=$(($(date +%s) + ${BENCH_SECS:-180} + 100)) followed n=0 silent=0
+		[ "${BENCH_SECS:-180}" = 0 ] && deadline=$(($(date +%s) + 86400))
+		followed=$(date +%s)
+		while :; do
+			result=$(FB_TIMEOUT=15 fb getvar result | grep '^result:')
+			# (no answer for half a minute and the loader gone -- the phone reset -- is a run that hung, whatever the deadline)
+			case "$result" in
+			"") silent=$((silent + 1)); [ "$silent" -ge 15 ] && [ "$(state)" != loader ] && break ;;
+			*running*) silent=0 ;;
+			*) break ;;
+			esac
+			[ "$(date +%s)" -ge "$deadline" ] && { result=; break; }
+			if [ -n "$follow" ] && [ $(($(date +%s) - followed)) -ge "$follow" ]; then
+				followed=$(date +%s)
+				n=$((n + 1))
+				fetch_log "$log.live" && { [ -z "${BENCH_FOLLOW_KEEP:-}" ] || cp "$log.live" "$log.live.$n"; }
+			fi
+			sleep 2
+		done
+	else
+		result=$(FB_TIMEOUT=30 fb getvar result | grep '^result:')
+	fi
+	if [ -z "$result" ]; then
+		say "no answer: the kernel hung; waiting for the watchdog to reset the phone"
+		[ -f "$log.live" ] && say "what the kernel said before it stopped answering: $log.live"
+		recover_phone
+		return 2
+	fi
+	if ! fetch_log "$log"; then
+		say "the log was not fetched (the phone may have reset mid-fetch): nothing recorded for this run"
+		return 1
+	fi
+	touch "$PHONE.ran"
+	ln -sf "$(basename "$log")" logs/last.log
+	echo "$result  [$log]"
+	# what each part of the phone said, in a few lines (the whole of it is in the log)
+	python3 tools/logcheck.py "$log" 2> /dev/null | tail -n +2 || true
+	case "$result" in
+	*hung* | *no-such-core*)
+		say "the kernel did not come back from its core; restarting the phone"
+		fb reboot > /dev/null; rm -f "$PHONE.ours"
+		return 2 ;;
+	esac
+	if [ -n "${BENCH_REBOOT_AFTER:-}" ]; then
+		say "BENCH_REBOOT_AFTER: the phone goes back to Android (it charges there)"
+		fb reboot > /dev/null; rm -f "$PHONE.ours"
+	fi
+}
+
+# The loader started anew when a kernel has already run in this session of it -- a second kernel in one session has
+# died at once every time it was tried -- and the resident image sent again, whatever its size (the restart keeps only
+# the small ones). Nothing is done for a loader no kernel has run in yet.
+fresh() {
+	local rwho rwhat rsize
+	if [ "$(state)" != loader ] || [ ! -f "$PHONE.ran" ]; then
+		enter
+		return
+	fi
+	[ -s "$PHONE.ramdisk" ] && IFS=$'\t' read -r rwho rwhat rsize < "$PHONE.ramdisk"
+	say "a kernel has run in this session of the loader: the phone is restarted, and the loader started anew"
+	fb reboot > /dev/null
+	rm -f "$PHONE.ours"
+	wait_for android 120 || true
+	enter || return 1
+	if [ -n "${rwhat:-}" ] && [ ! -s "$PHONE.ramdisk" ]; then
+		[ -f "$rwhat" ] || { say "the resident image $rwhat is not here to send again" >&2; return 1; }
+		ramdisk "$rwhat"
+	fi
+}
+
+fetch_staged() { # fetch_staged OEM-COMMAND FILE WHAT
+	enter || return 1
+	staged "$2" "$1" 120 || { say "the last run left no $3"; return 1; }
+}
+
+ramdisk() { # ramdisk [FILE|none]
+	enter || return 1
+	if [ "$1" = none ]; then
+		fb oem ramdisk none > /dev/null; rm -f "$PHONE.ramdisk"
+		say "resident image dropped"; return
+	fi
+	set -- "${1:-$IOS/system.apfs}"
+	[ -f "$1" ] || die "no $1"
+	local t0 size dt
+	t0=$(date +%s); size=$(stat -c %s "$1")
+	# fastboot sends a download's size in eight hex digits
+	[ "$size" -lt 4294967296 ] || die "$1 is $size bytes: over the 4 GiB - 1 one download can carry"
+	fb oem ramdisk | grep -q OKAY || die "the loader refused (no memory window?)"
+	FB_TIMEOUT=1800 fb stage "$1" | grep -q OKAY || die "the upload failed"
+	dt=$(($(date +%s) - t0)); [ $dt -lt 1 ] && dt=1
+	say "$((size / 1048576)) MB sent in $dt s ($((size / 1048576 / dt)) MB/s)"
+	# an absolute path: the record is shared by every working copy, and a relative one would be read against each
+	# copy's own directory (bench runs from the repository), not the one the file was named from
+	printf '%s\t%s\t%s\n' "$TOP" "$(readlink -f "$1")" "$size" > "$PHONE.ramdisk"
+}
+
+screenshot() { # screenshot [FILE.png]
+	enter || return 1
+	local out=${1:-logs/screen.png} geom
+	geom=$(fb getvar screen | sed -n 's/^screen: //p')
+	[ -n "$geom" ] && staged logs/screen.raw "oem screenshot" 60 || { say "the loader has no display"; return 1; }
+	# shellcheck disable=SC2086  # (three numbers)
+	python3 - logs/screen.raw "$out" $geom <<'PY' && rm -f logs/screen.raw && say "$out ($geom)"
+import struct, sys, zlib
+raw, out, width, height, stride = sys.argv[1], sys.argv[2], *map(int, sys.argv[3:6])
+data = open(raw, 'rb').read()
+rows = bytearray()
+for y in range(height):
+    line = data[y * stride:y * stride + width * 4]
+    rows.append(0)                                    # PNG filter type: none
+    rgb = bytearray(width * 3)
+    rgb[0::3], rgb[1::3], rgb[2::3] = line[2::4], line[1::4], line[0::4]   # the panel is BGRX
+    rows += rgb
+def chunk(kind, body):
+    return struct.pack('>I', len(body)) + kind + body + struct.pack('>I', zlib.crc32(kind + body))
+with open(out, 'wb') as f:
+    f.write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) +
+            chunk(b'IDAT', zlib.compress(bytes(rows), 6)) + chunk(b'IEND', b''))
+PY
+}
+
+# stop and reboot end a run; one started from another working copy is somebody else's (BENCH_FORCE=1)
+not_anothers_run() {
+	flock -n "$PHONE.run" true 2> /dev/null && return 0
+	[ "$(cat "$PHONE.who" 2> /dev/null)" = "$TOP" ] || [ -n "${BENCH_FORCE:-}" ] && return 0
+	echo "bench: a run started from $(cat "$PHONE.who" 2> /dev/null) is in progress; BENCH_FORCE=1 ./bench $1 ends it all the same" >&2
+	return 1
+}
+
+case "$1" in
+"" | run | selftest | state | screenshot | log | stop | reboot) ;;
+*)	if ! flock -n "$PHONE.run" true 2> /dev/null; then
+		echo "bench: a run is in progress: only state, screenshot, log, stop and reboot now" >&2; exit 1
+	fi ;;
+esac
+
+case "$1" in
+state) s=$(state); echo "$s: the phone is $(describe "$s")" ;;
+enter) enter && say "the loader is up ($BOARD)" ;;
+ramdisk) ramdisk "$2" ;;
+run) run "oem run $2" "run${2:+-cp$2}" ;;
+selftest) run "oem selftest" selftest ;;
+log) enter && fetch_log logs/loader.log && cat logs/loader.log ;;
+screenshot) screenshot "$2" ;;
+recording) fetch_staged "oem recording" logs/recording.raw "recording (rec_secs=N)" &&
+	tools/recording.py logs/recording.raw "${2:-logs/recording.mp4}" && rm -f logs/recording.raw ;;
+sound) fetch_staged "oem sound" logs/sound.raw "sound recording (rec_sound=N)" &&
+	"arch/arm64/boot/dts/$BOARD/legacy/tools/sound.py" logs/sound.raw "${2:-logs/sound.wav}" && rm -f logs/sound.raw ;;
+stop) not_anothers_run stop && fb oem stop | grep -q OKAY && say "asked the kernel to come back" ;;
+memmap) enter && fb oem memmap > /dev/null && fetch_log logs/loader.log && sed -n '/^memory map/,$p' logs/loader.log ;;
+hang) enter && fb oem hang; say "waiting for the watchdog..."; t0=$(date +%s)
+	wait_for android 150 && say "back in Android after $(($(date +%s) - t0)) s" || say "not back ($(describe "$(state)"))" ;;
+reboot) not_anothers_run reboot && fb reboot && rm -f "$PHONE.ours" ;;
+reload) [ "$(state)" = loader ] && { fb reboot > /dev/null; rm -f "$PHONE.ours"; wait_for android 120; }; enter && say "the loader is up ($BOARD)" ;;
+fresh) fresh && say "the loader is up ($BOARD), no kernel run in it yet" ;;
+*) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0" ;;
+esac

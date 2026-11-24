@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: MIT
+name: OnePlus 9 Darwin 27.2 public build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      JOBS: '4'
+      XNU_CLANG_DIR: /usr/lib/llvm-20/bin
+      BUILD_CONFIG: build.config.arm64.llvm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git curl python3 perl xz-utils flex bison m4 autoconf automake gawk \
+            clang-20 lld-20 llvm-20 libssl-dev zlib1g-dev uuid-dev liblz4-dev libzstd-dev \
+            cmake ninja-build pkg-config
+
+      - name: Fetch public iPhoneOS 16.5 SDK
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git "$RUNNER_TEMP/sdks"
+          git -C "$RUNNER_TEMP/sdks" sparse-checkout set iPhoneOS16.5.sdk
+          test -d "$RUNNER_TEMP/sdks/iPhoneOS16.5.sdk/usr/include"
+          echo "DARWIN_SDK=$RUNNER_TEMP/sdks/iPhoneOS16.5.sdk" >> "$GITHUB_ENV"
+
+      - name: Check device packages
+        run: python3 tools/boards.py check
+
+      - name: Build XNU for Darwin 27.2
+        run: |
+          export PATH="$XNU_CLANG_DIR:$PATH"
+          kernel/build.sh -j"$JOBS"
+
+      - name: Build generic UEFI loader
+        run: |
+          export PATH="$XNU_CLANG_DIR:$PATH"
+          arch/arm64/boot/build.sh
+
+      - name: Collect public artifacts only
+        run: |
+          mkdir -p out/27.2
+          KERNEL=$(find .. -type f -name 'mach.development.bcm2837' | head -n1)
+          test -n "$KERNEL"
+          cp "$KERNEL" out/27.2/mach.development.bcm2837
+          cp arch/arm64/boot/loader.efi out/27.2/loader.efi
+          sha256sum out/27.2/* | tee out/27.2/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lemonade-27.2-public-${{ github.sha }}
+          path: out/27.2
+          if-no-files-found: error
+          retention-days: 7

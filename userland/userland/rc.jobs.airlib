@@ -1,0 +1,143 @@
+# Commands run by the launchd job com.hakios.demo (RC_JOBS=rc.jobs.airlib).
+#
+# The 124 library functions of PortraitFilters that the generated wrapper can run, on the Adreno.
+#
+# These are air.visible functions: not entry points, and not dispatchable as themselves. Metal
+# stitches one into a caller at pipeline time through the ABI in its own metadata, which this
+# project does not implement. air_run --library runs the wrapper air_to_nir generates instead:
+# argument i from device buffer 0 at byte 16*i, the result into buffer 1 (../components/metal/docs/air.md section 5,
+# ../components/metal/tools/air/libcheck.py). The argument buffer holds floats, not the usual byte pattern, because
+# these modules promise no infinities and no NaNs -- with arbitrary bytes both sides of a
+# comparison are outside the contract and a disagreement means nothing.
+#
+# What this run can establish: that the wrapper's shader dispatches on the hardware and that the
+# words it writes are the words our own folder computes on the host. For 21 of these functions
+# LLVM on the host agrees with that folding too, so those three readings form a chain. For the
+# rest the folder and the Adreno are both ours, and the comparison catches the backend and the
+# hardware disagreeing with the folder -- which is how the ir3 u32-to-f32 rounding bug surfaced --
+# and nothing more. It is not evidence about Metal's stitching ABI, which is not implemented.
+
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_kickLightKernel_pos
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_kickLightKernel_neg
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_dualLightKernel
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_strobeKernel
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_contourExtractRed
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_contourLightKernel
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_portraitSpotKernel
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_neckContour
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_contourExtractRedStudio
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_studioLightKernel
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_cheapEdgePreserveStudio
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_strobeKernelV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_contourExtractRedV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_contourLightKernelV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_cheapEdgePreserveContourV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceContourMask
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_darkenContour
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_portraitConvertToGrayscale
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_portraitLocalContrast
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_drawTriangle
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_protectEyes
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_highKey
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_imToIPT
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_iptToHueChroma
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_softExposure
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_foodVignette
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyFoodVignette
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_disparityError
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_whitenteeth
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_enrich
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_eyeBrightenSoftlight
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_mixKernel1
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_textureDiff
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_textureAdd
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareDepth
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_mixKernel2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareDepth2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_mixKernel3
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_blendSingleChannelMask
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceVignetteContour
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyVignetteContour
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareBlackDisparity
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareBlackDepth
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyBlackDepth
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_refineBlackDepth
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceVignette1
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceProtect
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceAndBodyFill_1
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceAndBodyFill_6
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyVignette
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_adaptiveNormalization2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_adaptiveNormalizationGPU
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_adaptiveNormalizationAbsolute
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_invertRed
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_blendDepth
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_thresholdMatte
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_thresholdAndApplyMatte
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_invertImages
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_transitionDepths
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_renormalize01
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_featherBand
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_protectInterior
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_invertImage
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_normalizeToPhysicalDepth
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_foreground
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_filterCut
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_denormalize
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_confidenceConvertToHalfFloat
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_renormalizeThreshold
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_confidenceExtractRed
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_brightenSat
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_brightenFood
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_accumulateTileKernel
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_whitenteethV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_enrichV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_eyeBrightenV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_eyeBrightenSoftlightV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_textureDiffV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_textureAddV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_cheapEdgePreserveV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_protectEyesNose
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_eyeBlurV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_featherEdgeLight
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareDepthV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceVignetteStudioV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyFaceProtectStudio
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareDepthContourV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_blendSingleChannelMaskV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceVignetteContourV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyVignetteContourV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyFaceProtect
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_transparentBorder
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyTransparentBorder
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_redContour
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareBlackDisparityV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareBlackDepthV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyBlackDepthV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyStageNoFeather
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyStageNoFeatherSpill
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_getRefinedMatte
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyRefinedMatte
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_refineBlackDepthV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceVignetteStageV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_faceProtectV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_applyVignetteStageV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_invertRedV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_blendDepthV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_thresholdMatteV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_thresholdAndApplyMatteV2
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_red
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_thresholdAndApplyWhiteBG
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_thresholdWhiteMatte
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_prepareWhiteDepth
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _applyWhiteNoFeather
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _getRefinedWhiteMatte
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _applyRefinedWhiteMatte
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_srgbToIPT
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_rectToHueChroma
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_iptToSRGB
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_hueChromaToRect
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_scaleHue
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_scaleHuePi
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_shadowKernelDynamic
+/hakios/bin/air_run --library /System/Library/CoreImage/PortraitFilters.cifilter/portrait_filters.metallib _pf_polyKernelDynamic

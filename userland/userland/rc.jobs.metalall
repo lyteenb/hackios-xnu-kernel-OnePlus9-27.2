@@ -1,0 +1,45 @@
+# Commands run by the launchd job com.hakios.demo (RC_JOBS=rc.jobs.metalall).
+#
+# Every compute kernel of the corpus that ../components/metal/tools/air/kstruct.py did not measure as unable to
+# terminate -- including the ones that declare textures and samplers, which the compiler
+# library refused by name until it grew them. The point of running all of them is that ir3
+# does not share softpipe's limits: on this machine 40 of them stop inside nir_to_tgsi, so
+# the Adreno is the only place the question "does this compile and run" can be asked.
+#
+# Each in its own process, so one crash costs one kernel. The test binds eight buffers, eight
+# 64x64 RGBA8Unorm textures and eight default samplers; a kernel that wants another format or
+# another shape is refused by the library with a sentence naming what it wanted, which is the
+# measurement this list is for.
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_Clear
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_InitMinMax
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_MinMax
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_CalcCubeInputScaling
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_PopulateCube
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_DilateCubeLuma
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_DilateCubeChroma1
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_DilateCubeChroma2
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_ErodeCubeLuma
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_ErodeCubeChroma1
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_ErodeCubeChroma2
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_InitSpanTable
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib MetalFaceMask_PropogateAssociations
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_bistochastize_init
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_pcg_iter2
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_pcg_iter3
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib fbs_slice
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib spillCorrectionPreProcess
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib spillCorrectionPostProcess
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib image_calcminmax0
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib image_calcminmax1
+/hakios/bin/metal_drv_test /System/Library/CoreImage/PortraitFilters.cifilter/default.metallib image_calcminmax2
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib BlitLumaKernel_Uint
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib BlitChromaKernel_Uint
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib BlitLumaKernel_UintPacked
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib BlitChromaKernel_UintPacked
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib BlitLumaKernel_Unorm
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib BlitChromaKernel_Unorm
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib BlitKernel_Unorm
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib FilmGrainLumaKernel_Uint
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib FilmGrainChromaKernel_Uint
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib FilmGrainLumaKernel_Unorm
+/hakios/bin/metal_drv_test /System/Library/VideoDecoders/AV1SW.metallib FilmGrainChromaKernel_Unorm

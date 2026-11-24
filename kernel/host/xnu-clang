@@ -1,0 +1,30 @@
+#!/bin/bash
+# clang wrapper for cross-building xnu-12377 on Linux (kernel/deps/host/bin/xnu-clang plus the
+# flags of Apple's newer clang that xnu-12377's makefiles pass and upstream clang does not know):
+#  - forces an Apple Mach-O target (stock Linux clang defaults to ELF)
+#  - drops flags only Apple's clang understands
+#  - links with the cctools ld64
+#  - silences warnings (-w): Apple's code gives thousands with an upstream clang. XNU_WARNINGS=1 keeps them,
+#    to see what the compiler says of a file of HakiOS (touch it, build, and look for its name)
+HB="$(cd "$(dirname "$0")" && pwd)"
+quiet=(-w)
+[ "${XNU_WARNINGS:-0}" = 1 ] && quiet=()
+case "$(basename "$0")" in *++) drv=clang++; extra=(-fno-use-cxa-atexit);; *) drv=clang; extra=();; esac
+args=()
+for a in "$@"; do
+  case "$a" in
+    -enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang) ;;
+    -fapple-kext-vtable-verify|-Wno-vla-cxx-extension) ;;
+    # xnu-12377 MakeInc.def: Apple clang's switch against implicit SME streaming code (no SME here)
+    -mno-implicit-sme) ;;
+    -Werror|-Werror=*|-Weverything|-pedantic-errors) ;;
+    *) args+=("$a");;
+  esac
+done
+# the generic Darwin target, for the version the phones' SDK says (clang takes it from this variable)
+export IPHONEOS_DEPLOYMENT_TARGET=${XNU_SDK_VERSION:-16.5}
+# the clang: XNU_CLANG_DIR, or the one the kernel was built with (kernel/build.sh keeps it in host/clang-dir)
+[ -n "${XNU_CLANG_DIR:-}" ] || XNU_CLANG_DIR=$(cat "$HB/../clang-dir" 2>/dev/null)
+export XNU_CLANG_DIR    # (and for the linker clang runs: host/llvm/ld)
+exec "${XNU_CLANG_DIR:-/usr/bin}/$drv" -include "$HB/../../hostinc/xnu_clang_compat.h" -target arm64-apple-darwin --ld-path="$HB/ld64" \
+  "${quiet[@]}" "${extra[@]}" "${args[@]}"

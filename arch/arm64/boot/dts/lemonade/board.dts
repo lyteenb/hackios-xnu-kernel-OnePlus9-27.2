@@ -1,0 +1,101 @@
+/dts-v1/;
+// SPDX-License-Identifier: MIT
+
+// OnePlus 9 LE2110. Started by tools/boards.py new from boot.dts.
+// Every value here is to be checked against the device before it is relied on (Documentation/porting.md).
+/ {
+	name = "lemonade";                      // what the loader puts in /chosen/darwin-board
+	description = "OnePlus 9 LE2110";
+	soc = "sm8350";
+
+	// Nothing yet: a feature is listed once its driver has been seen to work on this board
+	// (Documentation/porting.md goes through them in the order to try).
+	features = "touch-s6sy792", "gpu-a660", "cpufreq-epss";
+
+	// The panel: qcom,mdss_dsi_samsung_amb655x_dsc_cmd ("samsung amb655x fhd cmd mode dsc dsi panel")
+	backlight {
+		type = "dcs";
+		panel-mode = "command";
+		min = <1>;
+		max = <4095>;
+		bytes = <2>;
+		byte-order = "lsb-first";
+	};
+
+	// The PMIC's real-time clock, read once at boot (rtc=0 leaves it alone): SPMI slave << 8 | the high byte
+	// of its RTC_RW block's registers.
+	rtc {
+		peripheral = <0x061>;
+		name = "the PMK8350's RTC";
+	};
+
+	// The flashlight's part on the PMIC, for the feature "torch-pm8350c": the flash LED module and that
+	// PMIC's temperature alarm, each as SPMI slave << 8 | the high byte of its registers.
+	torch {
+		flash = <0x2ee>;
+		alarm = <0x20a>;
+	};
+
+	// The audio DSP, for the feature "adsp": its reserved memory is from the tree; the directory with
+	// this phone's adsp.mdt and its parts is yours to name (arch/arm64/boot/dts/_template/board.dts).
+	// adsp {
+		// firmware = "fw-audio-lemonade";
+		// memory = <0x86100000>;
+		// memory-size = <0x02100000>;
+	// };
+
+	// The microphones' codec, for the feature "mic-wcd938x": its reset pin is from the tree.
+	mic {
+		codec-reset = <88>;
+	};
+	// S6SY792 on QUPv3 SE4 (I2C address 0x48), wired as the validated 16.5 bring-up found it.
+	touch-i2c {
+		sda = <20>;
+		scl = <21>;
+		interrupt = <23>;
+		reset = <22>;
+		address = <0x48>;
+		contacts = <10>;
+		coordinates = <1080 2400>;
+		io-supply = "ldoc8";
+		analog-supply = "ldoc3";
+		analog-millivolts = <3000>;
+		analog-enable = <74>;
+	};
+	// The loader under the phone's UEFI. fb-base is the GOP base reported by the OnePlus 9 UEFI.
+	loader {
+		fb-base = <0xE4D00000>;
+	};
+
+	// The OnePlus 9 UEFI payload, packed by arch/arm64/boot/mkboot.py.
+	uefi {
+		fd-base = <0x9FD00000>;
+		fd-size = <0x200000>;
+		header-version = <3>;
+	};
+
+	// A conservative first RAM-boot profile: no storage writes, no unverified peripherals.
+	boot {
+		fastboot-product = "lemonade";
+		cpus = <4>;
+		bootargs = "sb_delay=8", "bootcpu=7", "cpufreq=0", "ddr=0", "gpu=0", "metal=0", "wifi=0", "adsp=0", "ufs=0", "ufs_native=0", "ufs_write=0", "var_store=0";
+	};
+
+	// The Adreno 660 profile. The board data is from the LE2110 device tree and the existing 16.5 bring-up.
+	gpu {
+		model = "Adreno 660";
+		chip-id = <0x06060001>;
+		firmware = "fw-gpu";
+		gmem-kb = <1536>;
+		primitive-fifo = <0x00300000>;
+		hang-cycles = <0x3ffff>;
+		uche-cmdq-config = <0x66906>;
+		speed-fuse = <0x17b>;
+		gaming-fuse = <0x17b>;
+		highest-bank-bit = <16>;
+		gcc-debug-gpucc = <0x153>;
+		speeds-khz = <315000 379000 443000 540000>;
+		speed-levels = <64 80 128 192>;
+		default-speed = <1>;
+	};
+};

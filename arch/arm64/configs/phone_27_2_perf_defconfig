@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# OnePlus 9 Darwin 27.2 first phone UI: four cores, software graphics, no radio/storage writes.
+# No -v/systrace: this is the profile for looking at the actual SpringBoard screen.
+cpus=4
+gpu=0
+metal=0
+wifi=0
+adsp=0
+sound=0
+cam=0
+haptic=0
+sensors=0
+backlight=1
+touchscreen=1
+buttons=0
+battery=0
+cpufreq=1
+ddr=0
+ufs=0
+ufs_native=0
+ufs_write=0
+var_store=0
+launchd_unsecure_cache=1
+# Darwin 27's launchd/libignition needs Preboot before pid 1 hands over.
+# The kernel mounts it here; stage0's user-space mount alone is not enough.
+apfs_volume=md0,v=1
+apfs_volume_at=/private/preboot

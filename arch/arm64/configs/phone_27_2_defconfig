@@ -1,0 +1,16 @@
+# OnePlus 9 Darwin 27.2: first RAM boot, four cores, no phone peripherals.
+include phone_first
+cpus=4
+gpu=0
+metal=0
+wifi=0
+adsp=0
+ufs=0
+ufs_native=0
+ufs_write=0
+var_store=0
+touchscreen=0
+buttons=0
+cpufreq=0
+ddr=0
+launchd_unsecure_cache=1

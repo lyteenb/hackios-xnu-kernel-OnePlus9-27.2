@@ -1,0 +1,46 @@
+# Everything that can be checked without a phone, on every push and pull request:
+#   make check        lint, the board files and their generated table, the generated docs, the host
+#                     tests of the kernel's drivers (also under qemu-aarch64) and of the tools, and the loader
+#                     booted by a real UEFI in QEMU's virt machine (workbench/loader_boot_test.sh)
+#   kernel/verify.sh  Apple's pinned release + kernel/overlay + kernel/patches assemble, and exporting
+#                     the assembled tree gives back exactly what is committed
+#   kernel/syntax-check.sh
+#                     the C files HakiOS adds to the kernel compile, for syntax, types and formats, with the
+#                     runner's clang against the assembled tree's headers
+# The kernel itself is not built or linked here: that needs the Darwin toolchain (Documentation/building.md).
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    # (the whole job takes three minutes; one that hangs is over in twenty, not in the runner's six hours)
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tools
+        # (the runner's package mirror is not always there, and has been seen to hang: each try has four
+        # minutes, and there are three before the job gives up)
+        run: |
+          for attempt in 1 2 3; do
+            if sudo timeout 240 apt-get update -q &&
+               sudo timeout 240 apt-get install -y -q gcc-aarch64-linux-gnu qemu-user shellcheck clang lld zlib1g-dev libssl-dev \
+                   qemu-system-arm qemu-efi-aarch64; then
+              exit 0
+            fi
+            echo "attempt $attempt failed; waiting"
+            sleep $((attempt * 30))
+          done
+          exit 1
+      - name: make check
+        run: make check
+      - name: The kernel sources assemble and export back unchanged
+        run: kernel/verify.sh
+      - name: The kernel files HakiOS adds compile (syntax, types and formats only)
+        run: kernel/syntax-check.sh

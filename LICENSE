@@ -1,0 +1,12 @@
+This repository contains files under more than one licence.
+
+- New tools, tests, device-package format/data, public documentation and build configuration:
+  MIT. The licence text is in `LICENSES/preferred/MIT`.
+- Apple XNU extensions and patches, HakiOS-derived kernel/loader/user-space code, and kernel-overlay
+  driver code: Apple Public Source License 2.0. The licence text is in
+  `LICENSES/other/APSL-2.0`.
+- Files in `components/`, `fs/apfs/libdeflate/`, `fs/apfs/libzbitmap/` and other locations keep the
+  licence named in their own header or SPDX-License-Identifier.
+
+The authoritative mapping and third-party notices are in `NOTICE.md`. A file-level SPDX identifier
+takes precedence over this index. No single licence in this file relicenses the whole repository.

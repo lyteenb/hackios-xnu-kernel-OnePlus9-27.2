@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+name: OnePlus 9 debug UEFI loader
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-loader:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install loader tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-20 lld-20 llvm-20
+      - name: Build debug loader
+        run: |
+          export PATH="/usr/lib/llvm-20/bin:$PATH"
+          arch/arm64/boot/build.sh
+          sha256sum arch/arm64/boot/loader.efi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lemonade-debug-loader
+          path: arch/arm64/boot/loader.efi
+          if-no-files-found: error
+          retention-days: 1
