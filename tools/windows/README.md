@@ -31,6 +31,10 @@ The builder calls the repository's `tools/image.py`, `mkpayload.py` and `mkboot.
 `boot.img`, `kernel`, `root.apfs`, `system.apfs`, `launch.py`, `manifest.json`, `SHA256SUMS`, and
 Windows start/return helpers.
 
+The builder itself does not run `su`. Obtaining `device-tree.dtb` or vendor firmware from a phone may
+require root depending on how the private UEFI input is prepared. The current `phone_27_2_perf` profile
+does not need GPU, Wi-Fi, ADSP, audio or camera firmware; S6SY792 touch needs no firmware upload.
+
 ## QEMU check
 
 After producing the private release directory and kernel:

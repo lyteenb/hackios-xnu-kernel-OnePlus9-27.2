@@ -19,6 +19,24 @@
 不要把 IPSW、`root.apfs`、`system.apfs`、`DeviceTree.bin`、UEFI、firmware 或完整日志提交到
 公开仓库。临时文件应放在仓库外或 `.gitignore` 排除的目录中。
 
+### 是否需要 root / ADB 导出
+
+当前 perf 运行包的**启动阶段不需要 root**。`launch.py` 在 Android 中只使用 `adb devices` 和
+`adb reboot bootloader`，之后只用 `fastboot boot`，不执行 `adb shell`、`su` 或分区写入。
+
+但**组包阶段需要区分三类输入**：
+
+| 输入 | 来源 | 当前 perf 配置是否需要 |
+| --- | --- | --- |
+| `Uefi/SILICIUM_UEFI.fd`、`BootShim.bin`、`device-tree.dtb` | OnePlus 9 的设备/UEFI 私有输入 | 需要；已有同一设备输入时可复用，不必每次重新导出 |
+| `Release/system27-prune.apfs`、`root26-darwin.apfs`、`loader.efi` | 合法 IPSW 和私有镜像构建 | 需要；不是从 Android root 目录直接读取 |
+| `HardwareSerialSha256` | ADB serial 的 SHA-256 | 需要；只保存哈希，不需要 root |
+| GPU/Wi-Fi/ADSP/audio/camera firmware | 本机 Android/vendor 文件 | **当前配置不需要**：`gpu=0`、`wifi=0`、`adsp=0`、`sound=0`、`cam=0` |
+| S6SY792 固件 | 触控控制器 | **不需要上传固件**；驱动只做板级 I2C 初始化和扫描/上报命令 |
+
+因此：同一台已准备的 OnePlus 9、已有 UEFI/DTB 输入和合法 IPSW 时，不需要每次 root 导出；
+换一台手机或启用 GPU/Wi-Fi/音频等外设时，才需要为该设备补充相应私有输入。
+
 ## 1. 在 GitHub Actions 构建公开部分
 
 在仓库页面手动运行：
