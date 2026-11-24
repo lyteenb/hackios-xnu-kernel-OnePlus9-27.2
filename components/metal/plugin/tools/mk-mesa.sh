@@ -32,7 +32,6 @@ B=$XNUDEPS/build/mesa
 mkdir -p "$B"
 cd "$B"
 
-# shellcheck disable=SC2120  # called without arguments to hash stdin
 hash256() {
 	if [ "$(uname -s)" = Darwin ]; then shasum -a 256 "$@"; else sha256sum "$@"; fi
 }

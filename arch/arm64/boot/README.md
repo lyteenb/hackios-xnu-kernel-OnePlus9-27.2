@@ -21,7 +21,7 @@ The Redwood board package and its U-Boot/Mu-Silicium port are maintained outside
 building the shared loader. The UEFI repository boots this same generic `loader.efi` through U-Boot's `bootefi`
 service; it holds the board-specific menu, USB fastboot and UEFI integration.
 
-At EFI entry, the loader clears the text screen and shows the colored HakiOS banner before its hardware and recovery status lines.
+At EFI entry, the loader clears the text screen and shows the colored HackiOS banner before its hardware and recovery status lines.
 
 ## The parts
 

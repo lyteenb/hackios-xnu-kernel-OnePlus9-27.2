@@ -43,9 +43,8 @@ me=$(git config user.email)
 scan -HIoE "[A-Za-z0-9._%+-]+@(gmail|qq|163|outlook|hotmail|icloud|me)\\.com" | grep -v ":$me\$" | while read -r f; do echo "e-mail: $f"; done | grep . && bad=1
 # names of the tools used to write this (the repository is the author's own)
 scan -lIi "cl[a]ude\\|anthrop[i]c" | while read -r f; do echo "tool name: $f"; done | grep . && bad=1
-# the project's old name (it is HakiOS now); the two historical upstream repository names are cited
-# deliberately by their real URLs in the attribution pages.
-scan -lIi --exclude=export.local "hac[k]ios" | grep -vE "^\./(NOTICE\.md|README\.md|docs/(ACKNOWLEDGEMENTS|PROJECT)\.md)$" | while read -r f; do echo "old name: $f"; done | grep . && bad=1
+# the project's old name (it is HakiOS now)
+scan -lIi --exclude=export.local "hac[k]ios" | while read -r f; do echo "old name: $f"; done | grep . && bad=1
 tr '\0' '\n' < "$list" | grep -i "hac[k]ios" | while read -r f; do echo "old name in path: $f"; done | grep . && bad=1
 # embedded byte arrays (a firmware turned into a header) above 64 rows; the Metal library's test fixtures are
 # the bitcode of its own kernels (components/metal/plugin/tools/kernels/*.ll, made by components/metal/plugin/Makefile), not someone else's

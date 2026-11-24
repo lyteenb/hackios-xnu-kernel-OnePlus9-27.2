@@ -33,7 +33,7 @@ console_banner(void)
 	console_attribute(EFI_TEXT_ATTRIBUTE(EFI_TEXT_LIGHTCYAN, EFI_TEXT_BLACK));
 	print("+--------------------------------------------------+\n");
 	console_attribute(EFI_TEXT_ATTRIBUTE(EFI_TEXT_YELLOW, EFI_TEXT_BLACK));
-	print("|  HakiOS                                         |\n");
+	print("|  HackiOS                                         |\n");
 	console_attribute(EFI_TEXT_ATTRIBUTE(EFI_TEXT_LIGHTCYAN, EFI_TEXT_BLACK));
 	print("+--------------------------------------------------+\n");
 	console_attribute(EFI_TEXT_ATTRIBUTE(EFI_TEXT_LIGHTGRAY, EFI_TEXT_BLACK));
