@@ -27,7 +27,7 @@ def overlay_files():
     for base, prefix in places:
         for path in sorted(base.rglob('*')):
             if path.is_file() and not (prefix and path.name in ('README.md', 'Kconfig')):
-                yield path, prefix + str(path.relative_to(base))
+                yield path, prefix + path.relative_to(base).as_posix()
 PATCHES = ROOT / 'kernel/patches'
 OUT = ROOT / 'Documentation/boot-args.md'
 
