@@ -25,7 +25,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#define SAPD_URL "http://192.168.1.18:8099/sign"
+/* Documentation address: replace with the local sapd host. */
+#define SAPD_URL "http://192.0.2.1:8099/sign"
 
 static bool ours;
 

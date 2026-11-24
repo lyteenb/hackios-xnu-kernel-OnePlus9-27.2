@@ -39,8 +39,8 @@
 
 #include "absinthe_bag.h"
 
-/* The host that runs sapd also runs a tiny line sink here, so our log survives the kernel log flood. */
-#define KC_SINK_HOST "192.168.1.18"
+/* Documentation address: replace with the host that runs sapd and the line sink. */
+#define KC_SINK_HOST "192.0.2.1"
 #define KC_SINK_PORT 8100
 
 typedef int OSStatus;
@@ -537,7 +537,8 @@ my_arrayForKey(id self, SEL cmd, id key)
  * to the host, and the host does the real HTTPS to Apple. Only auth.itunes.apple.com is redirected; the
  * signed catalog traffic is untouched.
  */
-#define KC_PROXY "http://192.168.1.18:8101/_/"
+/* Documentation address: use the same local host as KC_SINK_HOST. */
+#define KC_PROXY "http://192.0.2.1:8101/_/"
 
 static id
 rewrite_request(id request)
@@ -593,7 +594,7 @@ hooked_urlWithString(id self, SEL _cmd, id str)
 			char nu[460];
 			id ns;
 
-			snprintf(nu, sizeof(nu), "http://192.168.1.18:8101/_/%s", u + 8);
+			snprintf(nu, sizeof(nu), "http://192.0.2.1:8101/_/%s", u + 8);
 			ns = ((id (*)(id, SEL, const char *))objc_msgSend)((id)objc_getClass("NSString"),
 			    sel_registerName("stringWithUTF8String:"), nu);
 			say("hakios: kc: url-rewrite %s -> %s\n", u, nu);

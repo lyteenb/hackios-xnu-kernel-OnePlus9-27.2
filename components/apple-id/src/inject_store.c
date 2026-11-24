@@ -245,7 +245,7 @@ static unsigned serial;
  */
 static const char *who = "store";
 
-/* Best-effort copy of a log line to the host line sink (192.168.9.80:8100), eviction-proof. */
+/* Best-effort copy of a log line to the host line sink (documentation address: 192.0.2.1:8100), eviction-proof. */
 static void
 sink_send(const char *buf, int n)
 {
@@ -261,7 +261,7 @@ sink_send(const char *buf, int n)
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons(8100);
-	addr.sin_addr.s_addr = inet_addr("192.168.1.18");
+	addr.sin_addr.s_addr = inet_addr("192.0.2.1");
 	if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
 		write(s, buf, (size_t)n);
 	}
@@ -634,7 +634,7 @@ rewrite_to_proxy(void *request_)
 		char nu[460];
 		id ns, newurl, mreq;
 
-		snprintf(nu, sizeof(nu), "http://192.168.1.18:8101/_/%s", u + 8 /* strlen("https://") */);
+		snprintf(nu, sizeof(nu), "http://192.0.2.1:8101/_/%s", u + 8 /* strlen("https://") */);
 		ns = ((id (*)(id, SEL, const char *))objc_msgSend)((id)objc_getClass("NSString"),
 		    sel_registerName("stringWithUTF8String:"), nu);
 		newurl = ((id (*)(id, SEL, id))objc_msgSend)((id)objc_getClass("NSURL"),
