@@ -40,37 +40,26 @@ $env:Path = "C:\path\to\platform-tools;C:\path\to\qemu;$env:Path"
 
 这个设置只对当前会话有效。不要把仓库路径、用户目录或私钥写入提交。
 
-## GitHub Actions
+## 构建
 
-公开构建使用：
+本仓库不包含 GitHub Actions workflow，也不要求使用 GitHub Actions。公开部分按当前环境的工具链手动构建：
 
-| Workflow | Runner | 产物 |
-| --- | --- | --- |
-| `lemonade-27.2-ci.yml` | `ubuntu-24.04` | `mach.development.bcm2837`、通用 `loader.efi`、SHA-256 |
-| `lemonade-27.2-metal.yml` | `ubuntu-24.04` | `HakiosMetal.bundle`、SHA-256 |
-| `check.yml` | `ubuntu-24.04` | 主机检查、kernel assemble/export、syntax check |
+```sh
+python3 tools/boards.py check
+BUILD_CONFIG=build.config.arm64.llvm kernel/build.sh -j4
+arch/arm64/boot/build.sh
+```
 
-这些 workflow 只构建公开源码。GitHub Actions 的 Linux runner 仅承担构建工具链的角色；本机不需要
-安装 Linux，也不需要 WSL。
+Metal 插件按 `components/metal/plugin/` 的构建脚本手动运行。Windows 只负责设备连接、校验、打包和 QEMU；Linux-only 的 XNU/loader 构建放到你的本地或外部构建环境。
 
-### 不需要本机 Linux 的部分
-
-- 设备包检查；
-- XNU kernel 编译；
-- 通用 loader 编译；
-- Metal 插件编译；
-- 主机静态检查。
-
-### 必须由用户自行准备的部分
+以下输入需要自行准备：
 
 - 合法持有的 iOS 27.2 `24B119` IPSW；
 - 从 IPSW 生成 Darwin root/system/Preboot 镜像的私有流程；
 - OnePlus 9 的 UEFI、固件和设备身份数据；
 - 真机连接、ADB 授权和 fastboot 操作。
 
-私有 Apple 资产不应通过公开 Actions artifact 传递。需要 Actions 时，使用私有仓库/私有 workflow，
-并在上传前执行脱敏和 `SHA-256` 校验。
-
+私有 Apple 资产不应通过公开 artifact 传递。无论使用本地环境还是外部构建环境，都要在发布前执行脱敏和 `SHA-256` 校验。
 ## QEMU
 
 QEMU 验证需要：

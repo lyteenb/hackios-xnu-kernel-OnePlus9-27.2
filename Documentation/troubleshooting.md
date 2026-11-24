@@ -323,7 +323,7 @@ software without it.
 
 `make check` is the lint, the board check of the first section (it covers every package that was
 brought in), the boot-argument reference and `workbench/run.sh` ([workbench/README.md](../workbench/README.md)).
-CI runs the same, plus `kernel/verify.sh` and `kernel/syntax-check.sh`.
+Run the same checks locally, plus `kernel/verify.sh` and `kernel/syntax-check.sh`.
 
 | What you see | What it means | What to do |
 | --- | --- | --- |
@@ -332,8 +332,8 @@ CI runs the same, plus `kernel/verify.sh` and `kernel/syntax-check.sh`.
 | `components: ...: FILE does not pin "..." (it changed there, or here)` | A script that fetches something and the manifest name different versions. | Change the two together. |
 | `binary: ./FILE (...)`, `firmware/Apple file name: ./FILE`, `home path: ...`, `secret: ...`, `byte array (N rows): ...` | `tools/check-publishable.sh` found something that must not be published. It looks at every file in the checkout, ignored ones too: a `loader.efi` you built there is enough. | Move the file out of the checkout ([CONTRIBUTING.md](../CONTRIBUTING.md), "What must never be committed"). |
 | `FAILED (failures=N)` under one of the `== ...` headings of `workbench/run.sh` | A test of the tools failed. `workbench/run.sh` shows only the last three lines of those. | Run it by itself for the reason: `python3 workbench/boards_test.py`. One reason, `[SECTION] KEY is not explained in the template`: a key was added without its line in `arch/arm64/boot/dts/_template/` ([arch/arm64/boot/dts/README.md](../arch/arm64/boot/dts/README.md#adding-a-kind-of-data)). |
-| `lint: no shellcheck on this machine: only the syntax was checked`, `== (no aarch64-linux-gnu-gcc or qemu-aarch64: the aarch64 run is left out)`, `== (no clang or lld-link: the loader is not built)` | Not failures. What is not installed is left out, and said. CI has all of it. | `sudo apt-get install gcc-aarch64-linux-gnu qemu-user shellcheck clang lld`. |
-| `make check` passes and CI fails | CI also assembles Apple's release and compiles the overlay against it. | `make verify-kernel` and `make syntax-kernel`, which need the network. After a change to a driver, `kernel/syntax-check.sh --tree DIR` answers in seconds. |
+| `lint: no shellcheck on this machine: only the syntax was checked`, `== (no aarch64-linux-gnu-gcc or qemu-aarch64: the aarch64 run is left out)`, `== (no clang or lld-link: the loader is not built)` | Not failures. What is not installed is left out, and said. Install the optional tools for a full local check. | `sudo apt-get install gcc-aarch64-linux-gnu qemu-user shellcheck clang lld`. |
+| `make check` passes but kernel checks fail | `kernel/verify.sh` also assembles Apple's release and `kernel/syntax-check.sh` compiles the overlay against it. | `make verify-kernel` and `make syntax-kernel`, which need the network. After a change to a driver, `kernel/syntax-check.sh --tree DIR` answers in seconds. |
 
 ## Where to ask
 

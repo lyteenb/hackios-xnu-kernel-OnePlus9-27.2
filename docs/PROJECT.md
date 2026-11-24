@@ -56,12 +56,12 @@ GPU、USB、loader 和发布包流程。它帮助确认了：
 | --- | --- | --- |
 | 内核/loader 源码 | 是 | 公开源码快照，许可证按文件区分 |
 | OnePlus 9 board/SoC 配置 | 是 | 只包含从设备树读取的事实和必要参数 |
-| 公开 CI | 是 | GitHub Actions 上的 kernel、loader、Metal 构建 |
+| 公开 workflow | **否** | 本仓库不包含 GitHub Actions；构建在本地或外部环境手动完成 |
 | Apple IPSW / rootfs / cryptex | **否** | 由使用者自行取得并保存在私有环境 |
 | vendor firmware / UEFI binary | **否** | 不提交、不公开分发 |
 | 设备序列号 / ECID / 设备身份 | **否** | 发布包也不能包含可反推身份的数据 |
 | 真机日志 | **否** | 只提交脱敏后的结论 |
-| 私有镜像构建 workflow | **否** | 防止误把 Apple 资产上传到公开仓库 |
+| 私有镜像构建流程 | **否** | 防止误把 Apple 资产上传到公开仓库 |
 
 ## 公开与私有的边界
 
@@ -69,7 +69,7 @@ GPU、USB、loader 和发布包流程。它帮助确认了：
 
 - 源码和补丁；
 - 设备包中的地址、总线、GPIO、面板时序等事实数据；
-- 构建脚本和 CI；
+- 构建脚本和本地检查命令；
 - 脱敏后的状态、限制、复现方法和校验方法。
 
 公开仓库不得保存：
@@ -87,4 +87,4 @@ GPU、USB、loader 和发布包流程。它帮助确认了：
 - 上游通用修复应先在 `oosexgang/hakios-xnu-kernel` 复核，再决定是否 cherry-pick。
 - OnePlus 9 的 16.5 硬件事实和早期集成应与 `b1ackm4x/hackios-xnu-kernel` 对照。
 - `lyteenb/hackios-xnu-kernel` 是 Windows 复现，不是上游来源。
-- 任何包含 Apple 资产的构建流程应留在私有仓库或私有 workflow 中，不进入本仓库。
+- 任何包含 Apple 资产的构建流程应留在私有环境或私有流程中，不进入本仓库。

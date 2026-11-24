@@ -3,7 +3,7 @@
 | Document | What it answers |
 | --- | --- |
 | [../docs/PROJECT.md](../docs/PROJECT.md) | This fork's scope, upstream relationship and public/private boundary. |
-| [../docs/PLATFORM.md](../docs/PLATFORM.md) | Supported hardware, Windows host, GitHub Actions and QEMU requirements. |
+| [../docs/PLATFORM.md](../docs/PLATFORM.md) | Supported hardware, Windows host, manual build and QEMU requirements. |
 | [../docs/STATUS.md](../docs/STATUS.md) | What is verified, what is unfinished, and the current software-render boot profile. |
 | [../docs/LIMITATIONS.md](../docs/LIMITATIONS.md) | GPU/Metal, peripheral, persistence, performance and safety limits. |
 | [../docs/REPRODUCE.md](../docs/REPRODUCE.md) | Source-only build, QEMU and RAM-boot reproduction steps. |

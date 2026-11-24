@@ -276,7 +276,7 @@ my-phone/                        a repository on any git host, called anything  
                                                                                           the form; then you
   BUILDING.md                    how to build and boot from this repository               device.py init       yes
   .gitignore                     what is never committed (the last rows)                  device.py init       yes
-  .github/workflows/check.yml    every push held to the kernel's checks of a package      device.py init       yes
+  Manual build/check             run the kernel's checks for a package                          you                  yes
   notes/, ...                    anything else of the phone: yours, brought in with it    you                  yes
   images/                        images for others to boot (images.md)                    make publish         yes
     README.md                    the index of the versions, newest first                  each publish, anew   yes

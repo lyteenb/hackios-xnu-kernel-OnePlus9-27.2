@@ -45,10 +45,10 @@ SPDX 标识仍然有效。
 
 - `arch/arm64/boot/dts/lemonade/` board/SoC 数据；
 - `drivers/board/s6sy792.c` 触控驱动；
-- `phone_27_2_perf_defconfig` 和公开 CI；
+- `phone_27_2_perf_defconfig` 和本地构建配置；
 - 27.2 Preboot/APFS 启动链适配；
 - Adreno 660 内核侧启动、A660 Metal 限制记录；
-- Windows + GitHub Actions 的无 WSL 复现说明；
+- Windows + 手动构建/外部构建环境的无 WSL 复现说明；
 - 本 `docs/` 下的平台、状态、限制、复现和致谢文档。
 
 这些新增文件按各自 SPDX 标识授权；对 Apple XNU/HakiOS 代码的修改仍按其原许可证处理。

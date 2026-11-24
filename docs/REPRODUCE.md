@@ -2,7 +2,7 @@
 # 复现步骤
 
 本文只描述验证路径，不包含 Apple 资产、厂商固件、设备身份或私有 artifact。Windows 用来做设备
-操作和可选 QEMU；XNU/loader/Metal 的 Linux-only 构建放在 GitHub Actions。
+操作和可选 QEMU；XNU/loader/Metal 的 Linux-only 构建放到本地或外部构建环境。
 
 ## 0. 准备
 
@@ -37,25 +37,17 @@
 请按自己的设备准备并核对 UEFI、DTB、设备身份和其他私有输入；
 确认这些文件属于当前设备后才使用。启用 GPU/Wi-Fi/音频等外设时，还要为该设备补充相应的 vendor firmware。
 
-## 1. 在 GitHub Actions 构建公开部分
+## 1. 手动构建公开部分
 
-在仓库页面手动运行：
+本仓库不包含 GitHub Actions workflow。按当前构建环境手动执行：
 
-- `OnePlus 9 Darwin 27.2 public build`（`.github/workflows/lemonade-27.2-ci.yml`）；
-- 如需要 Metal 插件，再运行 `OnePlus 9 Darwin 27.2 Metal plugin`
-  （`.github/workflows/lemonade-27.2-metal.yml`）。
+```sh
+python3 tools/boards.py check
+BUILD_CONFIG=build.config.arm64.llvm kernel/build.sh -j4
+arch/arm64/boot/build.sh
+```
 
-公开构建会：
-
-1. 安装 LLVM/Clang 和基础工具；
-2. 执行 `python3 tools/boards.py check`；
-3. 构建 `mach.development.bcm2837`；
-4. 构建 `loader.efi`；
-5. 生成 SHA-256 清单；
-6. 只上传 kernel、loader 和校验和。
-
-Metal workflow 只上传 `HakiosMetal.bundle` 和校验和。不要把私有系统镜像混入这些 artifact。
-
+Metal 插件按 `components/metal/plugin/` 的构建脚本手动构建。产物只包含公开源码；不要把 IPSW、rootfs、cryptex、系统镜像、原机固件、设备序列号或个人日志提交或公开上传。
 ## 2. 在私有环境制作 Darwin 镜像
 
 这一步必须使用你自己的 Apple 资产，并在私有仓库、私有 runner 或自己的 macOS/Linux 环境中完成。
@@ -71,7 +63,7 @@ bash darwin/userland/root26-darwin.sh
 python3 darwin/tools/mkimage26.py --prune "<IOS_DIR>/system27-prune.apfs"
 ```
 
-实际构建时以当前源码中的脚本参数和 workflow 为准。需要得到：
+实际构建时以当前源码中的脚本参数和当前构建说明为准。需要得到：
 
 - `root.apfs`：小型 `/hakios` 用户态镜像；
 - `system.apfs`：Darwin 系统/Preboot 相关镜像；
@@ -81,7 +73,7 @@ python3 darwin/tools/mkimage26.py --prune "<IOS_DIR>/system27-prune.apfs"
 - `mkpayload.py`：打包 kernel 和 root 的工具；
 - 可选 `launch.py`：设备校验、启动、停止和返回 Android。
 
-如果你的私有流程使用 GitHub Actions，使用私有仓库/私有 workflow，并确保 artifact 只对授权用户可见。
+如果你的私有流程使用外部构建环境，确保产物只对授权用户可见。
 不要使用公开仓库的 release 或公开 transfer branch 传输 Apple 资产。
 
 ## 3. Windows 公开工具
@@ -243,7 +235,7 @@ fastboot set_active ...
 
 ## 9. 复现验收清单
 
-- [ ] 公开 Actions 构建成功；
+- [ ] kernel/loader 在本地或外部环境构建成功；
 - [ ] `SHA256SUMS` / manifest 校验通过；
 - [ ] QEMU 或已知可用的私有 QEMU 环境到达锁屏；
 - [ ] 真机只使用 `fastboot boot`；

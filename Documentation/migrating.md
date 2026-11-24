@@ -104,7 +104,7 @@ Edit a driver in `kernel/overlay/` and run `kernel/build.sh`, or edit in the tre
   (`platforms.h`, `hakios_board_table.h`) are generated: change the board file or the SoC file, never
   the table. Since the phones moved out (next section) the builds generate them, and no table is in the
   repository.
-- **`make check` runs in CI on every push.** A stale `Documentation/boot-args.md` or a hand-edited patch fails it.
+- **Run `make check` before committing.** A stale `Documentation/boot-args.md` or a hand-edited patch fails it.
 
 ## The phones moved out of the main branch
 

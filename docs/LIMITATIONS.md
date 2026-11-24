@@ -72,7 +72,7 @@ HakiOS 的 stand-in 组件会为了启动 Darwin 放宽 Apple 的安全策略。
 ## 7. 复现边界
 
 - 公开仓库不包含 Apple IPSW、rootfs、cryptex、system image、厂商固件、UEFI binary 和设备身份；
-- 公开 Actions 只构建 kernel/loader/Metal，不构建可分发的 Apple 用户态镜像；
+- 本仓库不包含 Actions workflow；公开内容只提供源码和手动构建说明，不提供可分发的 Apple 用户态镜像；
 - 私有镜像构建、设备绑定和发布包校验必须在私有环境完成；
 - 没有设备身份或合法 IPSW 的使用者无法仅凭本仓库得到完整启动包；
 - 真实硬件验证需要设备、USB 连接、已解锁/可启动的 bootloader 和可回退的 Android 环境。

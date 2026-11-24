@@ -17,7 +17,7 @@ make check
 
 Runs the lint, validates the device packages that are present, checks that
 `Documentation/boot-args.md` is current, and runs the host tests. Nothing here needs a phone, a phone's package
-or Darwin: the tests run against three stand-in phones in `workbench/devices/`. CI runs the same on every push, plus
+or Darwin: the tests run against three stand-in phones in `workbench/devices/`. Run the same checks locally, plus
 `kernel/verify.sh` and `kernel/syntax-check.sh` against Apple's release. It runs the same in the tree a release's
 tarball unpacks to, which has no git: the checks go over the files the release lists (`.tracked-files`,
 `tools/files.py`). Debian/Ubuntu packages for everything optional:
@@ -225,7 +225,7 @@ passphrase): neither is ever published.
 
 | | Verified |
 | --- | --- |
-| `make check`, `kernel/verify.sh` | On every push, in CI. |
+| `make check`, `kernel/verify.sh` | Run locally or in an external build environment. |
 | The kernel's drivers compile | `kernel/syntax-check.sh`, on every push: the C files of `kernel/overlay` that a stock clang can check, for syntax, types and the formats of what they print (an error in the real build). With the DriverKit headers also the C++ files. The files of `kernel/syntax-check.skip` and linking need the real build; the script prints how many of each there are. |
 | The assembled tree | Byte for byte what the previous patch series produced. |
 | The loader build | Compiles without a warning with the boards of the repository and the tests' stand-in phones, on every push; the parts that are plain C (the payload, the device tree, NVRAM, the memory window, a download's bounds, the system image's place, the partition a write may reach) also run on the host. Its last on-phone run was before its board table was generated and before `uefi-charger` replaced a board's name in its code. |
@@ -234,7 +234,7 @@ passphrase): neither is ever published.
 | The full kernel build | Run to the end on Ubuntu 24.04 (2026-11-12, and again on 2026-11-16 from the layout of `arch/`, `fs/` and `components/`) with LLVM 20's tools and no theos, from a tree `kernel/assemble.sh` made: every file compiled, the ten `syntax-check.sh` cannot check among them, and the kernel linked with nothing undefined (18 MB, the 212 functions of HakiOS' drivers in it), with the two device packages. With `XNU_WARNINGS=1` the files of HakiOS give no warning. LLVM's linker does not lay the kernel out as cctools' does, so this is a check, not a kernel for a phone: with theos' cctools, as the team builds, the build was last run before this restructuring. |
 | A boot | In QEMU, the kernel linked by LLVM's linker from the new layout: `make qemu` (2026-11-16) boots it to its first process, its 34 tests pass (1477 checks), and on one processor and on several. On a phone: not since the restructuring. |
 | Darwin's libraries and small image | `darwin/userland/inj26.sh` (all 19, for 24B119) both with cctools' ld64 and with LLVM's alone, and `root26-darwin.sh` over 27.2's root file system and cryptexes, on 2026-11-16: arm64e, nothing left for `pacstrip` to rewrite. Not loaded on a phone since. |
-| `kernel/deps/stage1.sh` | Run end to end on Ubuntu 24.04 (2026-11-12): every pinned source fetched at its commit, the macOS 13.3 SDK's checksum matched, `mig`, `migcom`, `tcsh`, `unifdef` and `unzbm` built and run. Not in CI: it fetches several hundred megabytes. |
+| `kernel/deps/stage1.sh` | Run end to end on Ubuntu 24.04 (2026-11-12): every pinned source fetched at its commit, the macOS 13.3 SDK's checksum matched, `mig`, `migcom`, `tcsh`, `unifdef` and `unzbm` built and run. Not part of the default local checks: it fetches several hundred megabytes. |
 
 The first boot after the restructuring is the one to watch. If a driver behaves differently on the phone, compare
 `hw.board.*` and the driver's first log lines with the board file: every value it used to carry is

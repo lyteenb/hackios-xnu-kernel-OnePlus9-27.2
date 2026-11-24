@@ -49,7 +49,7 @@ Windows 下的复现和验证参考，不计入这两个上游。
 | GPU | Adreno 660，chip-id `0x06060001` |
 | Darwin 身份 | `iPhone12,1`，iOS 27.2，build `24B119` |
 | 启动方式 | `fastboot boot` + loader/USB RAM 传输，仅 RAM |
-| 宿主机 | Windows 10/11 + PowerShell 7；Linux 构建放在 GitHub Actions |
+| 宿主机 | Windows 10/11 + PowerShell 7；本仓库不提供 CI，构建按当前环境手动准备 |
 | 可选验证 | Windows 原生 QEMU；不要求本机 WSL 或 Linux |
 
 设备必须已经处于可以执行 `fastboot boot` 的状态，并且用户必须自行确认 bootloader、USB 驱动、
@@ -88,24 +88,23 @@ ADB 授权和数据备份。这里不包含绕过厂商限制或设备安全的�
 | `tools/windows/` | Windows 组包、RAM boot 启动器和 QEMU 验证脚本 |
 | `Documentation/` | 上游架构、移植、QEMU、驱动和故障排查文档 |
 | `docs/` | 本 fork 的平台、状态、限制、复现和致谢说明 |
-| `.github/workflows/` | 仅在 GitHub Actions 运行的公开 kernel/loader/Metal 构建 |
+| `.github/` | issue/PR 模板；本仓库不含 GitHub Actions workflow |
 
-公开仓库故意不包含私有系统镜像构建 workflow，也不包含任何 Apple 或 OnePlus 资产。
+公开仓库不包含 GitHub Actions workflow，也不包含任何 Apple 或 OnePlus 资产。
 
 ## 构建
 
-### GitHub Actions（推荐）
+### 构建（手动）
 
-1. 在仓库页面打开 **Actions**。
-2. 手动运行 `OnePlus 9 Darwin 27.2 public build`，即
-   `.github/workflows/lemonade-27.2-ci.yml`。
-3. 该 workflow 在 `ubuntu-24.04` runner 上安装 LLVM 和基础工具，执行设备包检查、XNU 构建和
-   通用 UEFI loader 构建，只上传内核与 `loader.efi`。
-4. Metal 插件可单独运行 `OnePlus 9 Darwin 27.2 Metal plugin`，它只构建并上传
-   `HakiosMetal.bundle` 和校验和。
+本仓库不提供 GitHub Actions workflow。使用你的本地或外部构建环境，按当前源码的工具链手动执行：
 
-Action 只应产出可公开的源代码构建物；不要把 IPSW、rootfs、cryptex、系统镜像、原机固件、
-设备序列号或个人日志上传到公开 artifact。
+```sh
+python3 tools/boards.py check
+BUILD_CONFIG=build.config.arm64.llvm kernel/build.sh -j4
+arch/arm64/boot/build.sh
+```
+
+Metal 插件按 `components/metal/plugin/` 和相应构建脚本手动构建。构建产物只包含公开源码，不要把 IPSW、rootfs、cryptex、系统镜像、原机固件、设备序列号或个人日志提交。
 
 ### 本机 Windows
 
@@ -117,15 +116,14 @@ Windows 用于设备连接、校验、打包和 QEMU 启动验证，不作为 Li
 - 可选：QEMU、UEFI firmware 和 `qemu-system-aarch64`；
 - 用户自行合法持有的对应 IPSW 和已解包的 Apple 系统资产。
 
-本机不要使用 WSL、MSYS 或 Git Bash 作为构建 shell；Linux-only 的 XNU/loader 构建交给 GitHub
-Actions。仓库不会修改系统或用户 PATH，工具路径应在单个 PowerShell 会话中设置。
+本机不要使用 WSL、MSYS 或 Git Bash 作为构建 shell；Linux-only 的 XNU/loader 构建放到你的外部构建环境。仓库不会修改系统或用户 PATH，工具路径应在单个 PowerShell 会话中设置。
 
 ## 复现步骤
 
 完整步骤见 [docs/REPRODUCE.md](docs/REPRODUCE.md)。最小流程如下：
 
-1. 在 GitHub Actions 构建 kernel 和 loader。
-2. 在自己的私有环境/私有 workflow 中解包自己合法持有的 `iPhone12,1` 27.2 `24B119` IPSW，
+1. 在本地或外部环境手动构建 kernel 和 loader。
+2. 在自己的私有环境中解包自己合法持有的 `iPhone12,1` 27.2 `24B119` IPSW，
    生成 `root.apfs` 与 `system.apfs`；这些文件不得提交或公开上传。
 3. 按 [Windows 组包脚本](tools/windows/README.md) 将 kernel、root/system 镜像、loader 和设备启动配置组合，并用 SHA-256 清单校验。
 4. 先在 QEMU 验证锁屏/启动链，再连接 OnePlus 9。
