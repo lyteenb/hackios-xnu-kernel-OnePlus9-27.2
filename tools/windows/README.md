@@ -38,6 +38,8 @@ require root/ADB depending on how the private UEFI input is prepared. The curren
 does not need GPU, Wi-Fi, ADSP, audio or camera firmware; S6SY792 touch needs no firmware upload. Even so,
 prepare and hash-check the current device's UEFI/DTB before building `boot.img`.
 
+Pass `-Defconfig phone_27_2_a660_base` to build the joint test base. Use the LE2110 BQ28Z610-capable loader and apply the two APFS overlays in [the reproduction guide](../../docs/REPRODUCE.md).
+
 ## QEMU check
 
 After producing the private release directory and kernel:
@@ -56,7 +58,9 @@ returns failure unless SpringBoard is observed.
 
 ## Package controls
 
-After the private package is built:
+Double-click `Start-iOS.cmd` in the final private package to start the USB RAM boot. It finds the workspace tools when installed under `out/releases`, or uses Python and Android platform-tools on the current PATH.
+
+Use `Start-iOS.cmd verify`, `Start-iOS.cmd status` or `Start-iOS.cmd android` from a terminal to verify, inspect or return to Android. The equivalent Python commands are:
 
 ```powershell
 python .\launch.py verify

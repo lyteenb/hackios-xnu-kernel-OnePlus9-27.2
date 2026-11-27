@@ -7,8 +7,9 @@
  * None of the three is a pin of the SoC. They are inputs of two of the power management chips; on
  * the two phones this was written on:
  *   power        KPDPWR_N of the power-on block ("PON") of the PMK8350
- *   volume down  RESIN_N of the same block
- *   volume up    a PMIC GPIO (GPIO6 of a PM7325 or a PM8350 on the first phones), pulled up; the key pulls it low
+ *   one volume key on RESIN_N of the same block
+ *   the other on a PMIC GPIO (GPIO6 of a PM7325 or a PM8350), pulled low by the key
+ * The board calls the GPIO volume_up or volume_down according to its actual wiring.
  * Both chips sit on the SPMI bus (slaves 0 and 1), and the way to that bus is the SoC's "PMIC
  * arbiter": it owns the bus and gives each of the systems on the chip (this one, the modem, the
  * always-on processor, TrustZone...) a set of registers per PMIC peripheral -- a "channel" -- to
@@ -109,7 +110,7 @@ struct peripheral {
 };
 /* The board's buttons { }; on both phones so far 0x013 (registers 0x1300 of slave 0) and 0x18d (0x8d00 of slave 1). */
 static struct peripheral pon = { .name = "the power-on block" };
-static struct peripheral pin = { .name = "volume up's GPIO" };
+static struct peripheral pin = { .name = "the volume key GPIO" };
 #define REGISTERS(p)            (((p)->id & 0xffu) << 8)        /* where its registers begin, on its slave */
 
 /* How the reads have gone: said once a minute. */
@@ -222,6 +223,8 @@ static struct button {
 } power = { .name = "power", .record = HAKIOS_BUTTON_LOCK },
     volume_up = { .name = "volume up", .record = HAKIOS_BUTTON_VOLUME_UP },
     volume_down = { .name = "volume down", .record = HAKIOS_BUTTON_VOLUME_DOWN };
+static struct button *pon_volume = &volume_down;
+static struct button *gpio_volume = &volume_up;
 
 /* "12.345 s (08:13:05.918 UTC)": since boot as in the log's own stamps, and as the daemons' lines have it */
 static void
@@ -300,30 +303,30 @@ buttons_poll(void)
 	const char *problem;
 	uint8_t status;
 
-	if (power.usable || volume_down.usable) {
+	if (power.usable || pon_volume->usable) {
 		problem = spmi_read(&pon, REG_RT_STATUS, &status, 1);
 		if (problem == NULL) {
 			pon.unread = 0;
 			button_look(&power, status & pon_kpdpwr);
-			button_look(&volume_down, status & pon_resin);
+			button_look(pon_volume, status & pon_resin);
 		} else {
 			pon.unread += pon.unread < LET_GO_LOOKS;
 			button_unread(&pon, &power);
-			button_unread(&pon, &volume_down);
+			button_unread(&pon, pon_volume);
 			if (said < 8) {
 				said++;
 				printf("buttons: reading %s: %s\n", pon.name, problem);
 			}
 		}
 	}
-	if (volume_up.usable) {
+	if (gpio_volume->usable) {
 		problem = spmi_read(&pin, REG_RT_STATUS, &status, 1);
 		if (problem == NULL) {
 			pin.unread = 0;
-			button_look(&volume_up, !(status & GPIO_LEVEL));
+			button_look(gpio_volume, !(status & GPIO_LEVEL));
 		} else {
 			pin.unread += pin.unread < LET_GO_LOOKS;
-			button_unread(&pin, &volume_up);
+			button_unread(&pin, gpio_volume);
 			if (said < 8) {
 				said++;
 				printf("buttons: reading %s: %s\n", pin.name, problem);
@@ -381,9 +384,9 @@ pon_identify(void)
 		printf("buttons: ... a power-on block of subtype %#x, which has no keys this driver reads: left alone\n", subtype);
 		return false;
 	}
-	printf("buttons: ... a power-on block of %s: power in bit %u of its status, volume down in bit %u\n",
+	printf("buttons: ... a power-on block of %s: power in bit %u of its status, %s in bit %u\n",
 	    subtype == PON_SUBTYPE_GEN3_HLOS ? "generation 3" : "before generation 3", (unsigned)__builtin_ctz(pon_kpdpwr),
-	    (unsigned)__builtin_ctz(pon_resin));
+	    pon_volume->name, (unsigned)__builtin_ctz(pon_resin));
 	return true;
 }
 
@@ -404,16 +407,16 @@ pon_inputs(void)
 		printf("buttons: %s: %s\n", pon.name, problem);
 		return;
 	}
-	printf("buttons: power-on block: status %#x (power %s, volume down %s); interrupts: edge %#x, high %#x, low %#x, "
+	printf("buttons: power-on block: status %#x (power %s, %s %s); interrupts: edge %#x, high %#x, low %#x, "
 	    "enabled %#x, latched %#x, pending %#x\n", r[0], (r[0] & pon_kpdpwr) ? "HELD" : "released",
-	    (r[0] & pon_resin) ? "HELD" : "released", r[REG_INT_SET_TYPE - REG_RT_STATUS], r[REG_INT_POLARITY_HIGH - REG_RT_STATUS],
+	    pon_volume->name, (r[0] & pon_resin) ? "HELD" : "released", r[REG_INT_SET_TYPE - REG_RT_STATUS], r[REG_INT_POLARITY_HIGH - REG_RT_STATUS],
 	    r[REG_INT_POLARITY_LOW - REG_RT_STATUS], r[REG_INT_ENABLED - REG_RT_STATUS], more[0], more[1]);
-	power.usable = volume_down.usable = true;
+	power.usable = pon_volume->usable = true;
 	power.last = r[0] & pon_kpdpwr;
-	volume_down.last = r[0] & pon_resin;
+	pon_volume->last = r[0] & pon_resin;
 }
 
-/* Step 4 for the pin: it is volume up only if it is an input with a pull-up, and switched on. */
+/* Step 4 checks that the volume key's GPIO is an enabled input with a pull-up. */
 static void
 pin_input(void)
 {
@@ -433,18 +436,18 @@ pin_input(void)
 	}
 	mode = c[0] & 3;
 	pull = c[GPIO_REG_PULL - GPIO_REG_MODE] & 7;
-	printf("buttons: volume up's pin: mode %u (%s), supply %u, pull %u (%s), %s; registers 0x40.. = %02x %02x %02x %02x %02x %02x "
-	    "%02x %02x; level %s\n", mode, mode == 0 ? "input" : mode == 1 ? "output" : mode == 2 ? "input and output" : "analog",
+	printf("buttons: %s's pin: mode %u (%s), supply %u, pull %u (%s), %s; registers 0x40.. = %02x %02x %02x %02x %02x %02x "
+	    "%02x %02x; level %s\n", gpio_volume->name, mode, mode == 0 ? "input" : mode == 1 ? "output" : mode == 2 ? "input and output" : "analog",
 	    c[GPIO_REG_SUPPLY - GPIO_REG_MODE] & 7, pull, pull < 4 ? "up" : pull == 4 ? "down" : "none",
 	    (c[GPIO_REG_ENABLE - GPIO_REG_MODE] & 0x80) ? "enabled" : "DISABLED", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
 	    (status & GPIO_LEVEL) ? "high (released)" : "LOW (held)");
 	if (mode != 0 || pull >= 4 || !(c[GPIO_REG_ENABLE - GPIO_REG_MODE] & 0x80)) {
-		printf("buttons: volume up's pin is not an enabled input with a pull-up. Making it one is a write to the PMIC, "
-		    "which this driver does not do: volume up is left alone\n");
+		printf("buttons: %s's pin is not an enabled input with a pull-up. Making it one is a write to the PMIC, "
+		    "which this driver does not do: %s is left alone\n", gpio_volume->name, gpio_volume->name);
 		return;
 	}
-	volume_up.usable = true;
-	volume_up.last = !(status & GPIO_LEVEL);
+	gpio_volume->usable = true;
+	gpio_volume->last = !(status & GPIO_LEVEL);
 }
 
 static void
@@ -497,7 +500,7 @@ buttons_thread(void *parameter, __unused wait_result_t result)
 	if (pin_known) {
 		pin_input();
 	}
-	if (!power.usable && !volume_up.usable) {
+	if (!power.usable && !gpio_volume->usable) {
 		printf("buttons: nothing that can be read: no buttons\n");
 		goto out;
 	}
@@ -569,18 +572,23 @@ hakios_buttons_init(void)
 		printf("buttons: disabled: this board's board.dts lists no \"buttons-pmic\"\n");
 		return;
 	}
-	if (board->spmi.core == 0 || board->buttons.pon == 0 || board->buttons.volume_up == 0) {
+	const bool gpio_is_down = board->buttons.volume_down != 0;
+	const uint16_t gpio = gpio_is_down ? board->buttons.volume_down : board->buttons.volume_up;
+	const char *gpio_name = gpio_is_down ? board->buttons.volume_down_name : board->buttons.volume_up_name;
+	if (board->spmi.core == 0 || board->buttons.pon == 0 || gpio == 0) {
 		printf("buttons: disabled: no spmi { } in the SoC file or no buttons { } in the board file\n");
 		return;
 	}
 	/* buttons_thread still checks the arbiter's version and that each peripheral is of the kind taken for. */
 	pon.id = board->buttons.pon;
-	pin.id = board->buttons.volume_up;
+	pin.id = gpio;
+	pon_volume = gpio_is_down ? &volume_up : &volume_down;
+	gpio_volume = gpio_is_down ? &volume_down : &volume_up;
 	if (board->buttons.pon_name != NULL) {
 		pon.name = board->buttons.pon_name;
 	}
-	if (board->buttons.volume_up_name != NULL) {
-		pin.name = board->buttons.volume_up_name;
+	if (gpio_name != NULL) {
+		pin.name = gpio_name;
 	}
 	PE_parse_boot_argn("buttons_steps", &steps, sizeof(steps));
 	if (steps == 0) {
@@ -604,8 +612,8 @@ hakios_buttons_init(void)
  *     summary of which channels have something. Those are writes to the arbiter, not to a PMIC.
  *   - But the peripheral must be told to raise them as well: for each key a bit in "interrupt
  *     type" (edge), "polarity high" and "polarity low" (both edges), and "enable set". Those are
- *     WRITES TO THE PMIC -- to the power-on block for power and volume down, to the GPIO for
- *     volume up -- unless the firmware has left them set; step 4 prints what it finds there.
+ *     WRITES TO THE PMIC for the PON and GPIO keys unless the firmware has left their
+ *     inputs configured. Step 4 prints what it finds.
  *     After an interrupt the peripheral's latched status is cleared by another write to it.
  *   - Only the system that owns a peripheral's channel gets its interrupts (step 2 prints the
  *     owners).

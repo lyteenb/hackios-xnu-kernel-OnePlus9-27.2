@@ -8,7 +8,9 @@ in the extracted system is ordinary LLVM bitcode in the standard 0x0B17C0DE wrap
 
 usage: metallib.py list FILE                  the functions, their type, air version, module size
        metallib.py dump FILE OUTDIR [N]       write each function's bitcode as OUTDIR/<name>.bc
+       metallib.py pack FILE TYPE:NAME:BC...  make a fixture library from assembled AIR modules
 """
+import hashlib
 import os
 import struct
 import sys
@@ -89,8 +91,64 @@ def bitcode_of(b, header, f):
     return blob, False
 
 
+def pack(path, entries):
+    """Wrap AIR fixtures in the executable-library layout used by iOS 27.2."""
+    def tag(name, value):
+        return name + struct.pack('<H', len(value)) + value
+
+    types = {kind: value for value, kind in TYPES.items()}
+    records = bytearray()
+    metadata = bytearray()
+    modules = bytearray()
+    names = set()
+    for entry in entries:
+        kind, name, module_path = entry.split(':', 2)
+        if kind not in types or not name or name in names or '\x00' in name:
+            raise ValueError(f'invalid or duplicate AIR function: {kind}:{name}')
+        with open(module_path, 'rb') as source:
+            bitcode = source.read()
+        if bitcode.startswith(b'\xde\xc0\x17\x0b') and len(bitcode) >= 20:
+            offset, size = struct.unpack_from('<II', bitcode, 8)
+            if offset < 20 or offset + size > len(bitcode):
+                raise ValueError(f'{module_path}: invalid LLVM wrapper')
+            bitcode = bitcode[offset:offset + size]
+        if not bitcode.startswith(b'BC\xc0\xde'):
+            raise ValueError(f'{module_path}: expected LLVM bitcode')
+        module = struct.pack('<IIIII', 0x0B17C0DE, 0, 20, len(bitcode), 0xffffffff) + bitcode
+        module += bytes(-len(module) % 16)
+        record = (tag(b'NAME', name.encode('utf-8') + b'\x00')
+                  + tag(b'TYPE', bytes([types[kind]]))
+                  + tag(b'HASH', hashlib.sha256(module).digest())
+                  + tag(b'OFFT', struct.pack('<QQQ', len(metadata), len(metadata), len(modules)))
+                  + tag(b'VERS', struct.pack('<HHHH', 2, 5, 3, 0))
+                  + tag(b'MDSZ', struct.pack('<Q', len(module))) + b'ENDT')
+        records.extend(struct.pack('<I', 4 + len(record)))
+        records.extend(record)
+        metadata.extend(struct.pack('<I4s', 8, b'ENDT'))
+        modules.extend(module)
+        names.add(name)
+
+    if not names:
+        raise ValueError('at least one AIR function is required')
+    # The thin AIR slice of the 24B119 QuartzCore library gives the header fields.
+    header = bytearray(0x58)
+    struct.pack_into('<4s6H', header, 0, b'MTLB', 1, 2, 9, 0x8200, 27, 2)
+    function_list = struct.pack('<I', len(names)) + records + b'ENDT'
+    public_offset = len(header) + len(function_list)
+    private_offset = public_offset + len(metadata)
+    module_offset = private_offset + len(metadata)
+    struct.pack_into('<9Q', header, 0x10, module_offset + len(modules),
+                     len(header), len(records), public_offset, len(metadata),
+                     private_offset, len(metadata), module_offset, len(modules))
+    with open(path, 'wb') as output:
+        output.write(header + function_list + metadata + metadata + modules)
+
+
 if __name__ == '__main__':
     what, path = sys.argv[1], sys.argv[2]
+    if what == 'pack':
+        pack(path, sys.argv[3:])
+        sys.exit(0)
     b, header, funcs = parse(path)
     if what == 'list':
         for k, v in header.items():

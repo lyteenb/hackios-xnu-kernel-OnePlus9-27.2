@@ -8,7 +8,7 @@
 
 1. Apple XNU 的公开源码组装与 HakiOS 覆盖层；
 2. HakiOS loader、UEFI 启动支持和 USB RAM 传输；
-3. OnePlus 9 的 board/SoC 数据、显示、触控、CPU 频率和 GPU 内核侧配置；
+3. OnePlus 9 的 board/SoC 数据、显示、触控、CPU 频率、A660、PMIC 按键及电池配置；
 4. Darwin 27.2 用户态镜像构建工具；
 5. QEMU 验证和 OnePlus 9 真机 RAM boot 验证。
 
@@ -27,8 +27,7 @@
 - 设备包格式、测试、文档和 MIT/APSL-2.0 分层许可证协议；
 - Renoir 等参考设备的 bring-up 记录。
 
-本仓库的源码快照来自 `hakios-27.2-lemonade` 分支提交 `8a61f288`。上游仍是通用代码的权威来源；
-本仓库只负责保存 OnePlus 9 的集成结果和公开复现说明。
+本仓库维护 OnePlus 9 的公开集成快照和复现说明。通用代码继续以 HakiOS 上游为准。
 
 ### `b1ackm4x/hackios-xnu-kernel`
 
@@ -82,7 +81,7 @@ GPU、USB、loader 和发布包流程。它帮助确认了：
 
 ## 版本与分支
 
-- 当前源码快照：`hakios-27.2-lemonade` 的 `8a61f288`。
+- 当前源码和验证范围见 [状态页](STATUS.md)。
 - 本仓库的 `main` 用于公开整理，不声称与上游历史线性对应。
 - 上游通用修复应先在 `oosexgang/hackios-xnu-kernel` 复核，再决定是否 cherry-pick。
 - OnePlus 9 的 16.5 硬件事实和早期集成应与 `b1ackm4x/hackios-xnu-kernel` 对照。

@@ -24,6 +24,8 @@ extern char log_text[];
 #define VOLTAGE_VALID   (1u << 3)
 #define CHARGING        (1u << 4)
 #define ESTIMATED       (1u << 5)
+#define DIRECT_GAUGE    (1u << 6)
+#define FULL            (1u << 7)
 
 struct cache {
 	uint64_t magic;
@@ -507,6 +509,28 @@ a_stale_figure_is_not_shown(void)
 	CHECK(told()->voltage_uv == 4405000 && told()->temperature_hundredths == 4500 && told()->present == 1, "the rest as read");
 	CHECK(s("battery_soc") == 15 && s("battery_shown") >= 990, "the sysctls: the firmware's figure, and what is shown: %d, %d",
 	    s("battery_soc"), s("battery_shown"));
+}
+
+static void
+direct_pack_gauge(void)
+{
+	phone("phone-cmd");
+	const uint32_t flags = VALID | PRESENT | CHARGER | VOLTAGE_VALID | DIRECT_GAUGE;
+	publish(flags, 67, 8564, -373, 31);
+	hakios_battery_init();
+	WAIT_FOR(reported > 0, 2000);
+	CHECK(reported > 0 && told()->direct_gauge && told()->percent_hundredths == 6700,
+	    "the series pack's 67 percent is reported directly");
+	CHECK(told()->voltage_uv == 8564000 && told()->external && told()->status == 3,
+	    "the status word reports external power without charging");
+
+	publish(flags, 100, 8650, -20, 31);
+	WAIT_FOR(told()->percent_hundredths == 10000, 2000);
+	CHECK(told()->percent_hundredths == 10000 && told()->status == 3,
+	    "100 percent without the gauge's full flag remains not charging");
+	publish(flags | FULL, 100, 8650, -20, 31);
+	WAIT_FOR(told()->status == 4, 2000);
+	CHECK(told()->status == 4, "the pack's full flag reaches Darwin");
 }
 
 /* on a computer's port, drawing more than it gives: on a charger, not charging */
@@ -1139,6 +1163,7 @@ main(int argc, char **argv)
 		{ "board_without_it", board_without_it }, { "from_the_dsp", from_the_dsp }, { "asked_for_none", asked_for_none },
 		{ "the_arithmetic", the_arithmetic }, { "a_stale_figure_is_not_shown", a_stale_figure_is_not_shown },
 		{ "on_a_port_that_gives_too_little", on_a_port_that_gives_too_little },
+		{ "direct_pack_gauge", direct_pack_gauge },
 		{ "shown_a_little_at_a_time", shown_a_little_at_a_time }, { "the_dsp_knows_better", the_dsp_knows_better }, { "at_the_edges", at_the_edges },
 		{ "address_zero", address_zero }, { "full_on_the_charger", full_on_the_charger }, { "shown_as_told", shown_as_told },
 		{ "loader_goes_quiet", loader_goes_quiet }, { "dsp_goes_quiet", dsp_goes_quiet },

@@ -20,7 +20,7 @@
 #include "hakios-metal/compiler.hpp"
 #include "hakios-metal/fake_gpu.hpp"
 #include "hakios-metal/hakios_metal.h"
-#include "hakios-metal/a6xx.hpp"
+#include "hakios-metal/device_profile.hpp"
 #include "hakios-metal/metallib.hpp"
 #include "../tests/fixtures/null_fs_bc.hpp"
 #include "hakios-metal/texture.hpp"
@@ -161,7 +161,13 @@ struct hakios_metal_sampler {
 struct hakios_metal_program {
     std::shared_ptr<CompiledProgram> program;   // shared with every command buffer that drew with it and has not completed
     unsigned color = 0;                         // the colour format it was linked for (hakios_metal_program_specialize links again)
+    uint32_t chipId = a6xx::kChipId;
 };
+
+static uint32_t compilerTarget(const hakios_metal_device* device) {
+    const auto* profile = device != nullptr ? device->gpu->profile() : nullptr;
+    return profile != nullptr ? profile->chipId : a6xx::kChipId;
+}
 
 namespace {
 // deferred recording: whether this call is to be posted rather than done here, and copies of what it names that outlive
@@ -232,12 +238,14 @@ const char* hakios_metal_error(void) { return lastError.c_str(); }
 
 // Tiles, GMEM offsets and the shader compiler are built for one chip (a6xx.hpp). A kernel that does not say (0) is taken at its
 // word that it is that one: only a chip it names as another is refused, so that the window server stays on OpenGL ES there.
-bool hakios_metal_chip_known(uint32_t chip) { return chip == 0 || chip == a6xx::kChipId; }
-[[maybe_unused]] static bool chipKnown(uint32_t chip) { return hakios_metal_chip_known(chip); }
+bool hakios_metal_chip_known(uint32_t chip) {
+    const a6xx::DeviceProfile* profile = a6xx::profileForChip(chip);
+    return profile != nullptr && profile->hardwareEnabled;
+}
 
-static hakios_metal_device* deviceOn(std::unique_ptr<Transport> t) {
+static hakios_metal_device* deviceOn(std::unique_ptr<Transport> t, Gpu::ProbeMode mode = Gpu::ProbeMode::kOff) {
     auto* d = new hakios_metal_device;
-    d->gpu = std::make_unique<Gpu>(std::move(t));
+    d->gpu = std::make_unique<Gpu>(std::move(t), mode);
     return d;
 }
 
@@ -250,14 +258,21 @@ hakios_metal_device* hakios_metal_open(void) {
         failed(why);
         return nullptr;
     }
+#ifdef HAKIOS_METAL_A660_COMPOSITOR_PROBE
+    hakios_metal_device* d = deviceOn(std::move(t), Gpu::ProbeMode::kA660Compositor);
+#else
     hakios_metal_device* d = deviceOn(std::move(t));
-    if (!chipKnown(d->gpu->chipId())) {
+#endif
+    if (!d->gpu->usesVerifiedCommandTables() && !d->gpu->usesA660CompositorProbe()) {
         char text[160];
         snprintf(text, sizeof(text), "the GPU's chip ID is %#x: the tables of this driver are the Adreno's of chip ID %#x (a6xx.hpp), another's would hang it",
                  d->gpu->chipId(), a6xx::kChipId);
         failed(text);
         delete d;
         return nullptr;
+    }
+    if (d->gpu->usesA660CompositorProbe()) {
+        std::fprintf(stderr, "A660-COMPOSITOR opened the sysmem Metal device\n");
     }
     return d;
 #endif
@@ -307,8 +322,14 @@ hakios_metal_kernel* hakios_metal_kernel_compile_bitcode(const void* bitcode, si
 }
 
 hakios_metal_kernel* hakios_metal_kernel_compile_bitcode_constants(const void* bitcode, size_t size, const hakios_metal_constant* constants, unsigned count) {
+    return hakios_metal_kernel_compile_bitcode_for_device(nullptr, bitcode, size, constants, count);
+}
+
+hakios_metal_kernel* hakios_metal_kernel_compile_bitcode_for_device(hakios_metal_device* device, const void* bitcode,
+                                                                  size_t size, const hakios_metal_constant* constants,
+                                                                  unsigned count) {
     std::string why;
-    std::unique_ptr<CompiledKernel> k = compileAir(bitcode, size, &why, constantsOf(constants, count));
+    std::unique_ptr<CompiledKernel> k = compileAir(bitcode, size, &why, constantsOf(constants, count), compilerTarget(device));
     if (k == nullptr) {
         failed(why);
         return nullptr;
@@ -1149,7 +1170,8 @@ int hakios_metal_cb_dispatch(hakios_metal_cb* cb, hakios_metal_kernel* k, const 
 
 // --- the render path: a program of two stages, and one draw of it -------------------------------------------------------
 
-static hakios_metal_program* programOf(std::shared_ptr<CompiledStage> vs, std::shared_ptr<CompiledStage> fs, unsigned colorPixelFormat) {
+static hakios_metal_program* programOf(std::shared_ptr<CompiledStage> vs, std::shared_ptr<CompiledStage> fs,
+                                      unsigned colorPixelFormat, uint32_t chipId) {
     std::string why;
     std::unique_ptr<CompiledProgram> p = linkProgram(std::move(vs), std::move(fs), PixelFormat(colorPixelFormat), &why);
     if (p == nullptr) {
@@ -1159,6 +1181,7 @@ static hakios_metal_program* programOf(std::shared_ptr<CompiledStage> vs, std::s
     auto* r = new hakios_metal_program;
     r->program = std::move(p);
     r->color = colorPixelFormat;
+    r->chipId = chipId;
     return r;
 }
 
@@ -1169,6 +1192,15 @@ hakios_metal_program* hakios_metal_program_new_bitcode(const void* vsBitcode, si
 hakios_metal_program* hakios_metal_program_new_bitcode_linked(const void* vsBitcode, size_t vsSize, const hakios_metal_constant* vsConstants, unsigned vsCount,
                                                               const void* fsBitcode, size_t fsSize, const hakios_metal_constant* fsConstants, unsigned fsCount,
                                                               const hakios_metal_linked* linked, unsigned count, unsigned colorPixelFormat) {
+    return hakios_metal_program_new_bitcode_linked_for_device(nullptr, vsBitcode, vsSize, vsConstants, vsCount,
+                                                             fsBitcode, fsSize, fsConstants, fsCount,
+                                                             linked, count, colorPixelFormat);
+}
+
+hakios_metal_program* hakios_metal_program_new_bitcode_linked_for_device(hakios_metal_device* device,
+    const void* vsBitcode, size_t vsSize, const hakios_metal_constant* vsConstants, unsigned vsCount,
+    const void* fsBitcode, size_t fsSize, const hakios_metal_constant* fsConstants, unsigned fsCount,
+    const hakios_metal_linked* linked, unsigned count, unsigned colorPixelFormat) {
     std::vector<LinkedFunction> functions;
     for (unsigned i = 0; i < count; i++) {
         if (linked[i].name == nullptr || linked[i].bitcode == nullptr) continue;
@@ -1176,15 +1208,24 @@ hakios_metal_program* hakios_metal_program_new_bitcode_linked(const void* vsBitc
         functions.push_back(LinkedFunction{linked[i].name, std::vector<uint8_t>(b, b + linked[i].size)});
     }
     LinkedScope scope(std::move(functions));
-    return hakios_metal_program_new_bitcode_constants(vsBitcode, vsSize, vsConstants, vsCount, fsBitcode, fsSize, fsConstants, fsCount,
-                                                      colorPixelFormat);
+    return hakios_metal_program_new_bitcode_for_device(device, vsBitcode, vsSize, vsConstants, vsCount,
+                                                      fsBitcode, fsSize, fsConstants, fsCount, colorPixelFormat);
 }
 
 hakios_metal_program* hakios_metal_program_new_bitcode_constants(const void* vsBitcode, size_t vsSize, const hakios_metal_constant* vsConstants, unsigned vsCount,
                                                                  const void* fsBitcode, size_t fsSize, const hakios_metal_constant* fsConstants, unsigned fsCount,
                                                                  unsigned colorPixelFormat) {
+    return hakios_metal_program_new_bitcode_for_device(nullptr, vsBitcode, vsSize, vsConstants, vsCount,
+                                                      fsBitcode, fsSize, fsConstants, fsCount, colorPixelFormat);
+}
+
+hakios_metal_program* hakios_metal_program_new_bitcode_for_device(hakios_metal_device* device,
+    const void* vsBitcode, size_t vsSize, const hakios_metal_constant* vsConstants, unsigned vsCount,
+    const void* fsBitcode, size_t fsSize, const hakios_metal_constant* fsConstants, unsigned fsCount,
+    unsigned colorPixelFormat) {
+    const uint32_t chipId = compilerTarget(device);
     std::string why;
-    std::unique_ptr<CompiledStage> vs = compileStage(vsBitcode, vsSize, &why, constantsOf(vsConstants, vsCount));
+    std::unique_ptr<CompiledStage> vs = compileStage(vsBitcode, vsSize, &why, constantsOf(vsConstants, vsCount), 0, nullptr, chipId);
     if (vs == nullptr) {
         failed(why);
         return nullptr;
@@ -1198,12 +1239,12 @@ hakios_metal_program* hakios_metal_program_new_bitcode_constants(const void* vsB
         fsCount = 0;
     }
     // the FS's device buffers past the VS's in the one IBO table the two share
-    std::unique_ptr<CompiledStage> fs = compileStage(fsBitcode, fsSize, &why, constantsOf(fsConstants, fsCount), vs->stage.k.numSsbos);
+    std::unique_ptr<CompiledStage> fs = compileStage(fsBitcode, fsSize, &why, constantsOf(fsConstants, fsCount), vs->stage.k.numSsbos, nullptr, chipId);
     if (fs == nullptr) {
         failed(why);
         return nullptr;
     }
-    return programOf(std::move(vs), std::move(fs), colorPixelFormat);
+    return programOf(std::move(vs), std::move(fs), colorPixelFormat, chipId);
 }
 
 hakios_metal_program* hakios_metal_program_specialize(hakios_metal_program* base, const void* fsBitcode, size_t fsSize, const hakios_metal_constant* fsConstants,
@@ -1240,7 +1281,7 @@ hakios_metal_program* hakios_metal_program_specialize_part(hakios_metal_program*
     known.bytes.assign(static_cast<const uint8_t*>(bytes), static_cast<const uint8_t*>(bytes) + length);
     if (fold != nullptr) known.fold.assign(fold, fold + length);
     const Program& was = base->program->program;
-    std::unique_ptr<CompiledStage> fs = compileStage(fsBitcode, fsSize, &why, constantsOf(fsConstants, fsCount), was.fsIboBase, &known);
+    std::unique_ptr<CompiledStage> fs = compileStage(fsBitcode, fsSize, &why, constantsOf(fsConstants, fsCount), was.fsIboBase, &known, base->chipId);
     if (fs == nullptr) {
         failed(why);
         return nullptr;
@@ -1258,6 +1299,7 @@ hakios_metal_program* hakios_metal_program_specialize_part(hakios_metal_program*
     auto* r = new hakios_metal_program;
     r->program = std::move(p);
     r->color = base->color;
+    r->chipId = base->chipId;
     return r;
 }
 

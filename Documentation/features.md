@@ -14,12 +14,12 @@ the two the same. What each key means is in `arch/arm64/boot/dts/_template/soc.d
 | `cpufreq-epss` | `cpufreq { }` | nothing | `cpufreq=1` |
 | `ddr-rpmh` | `rpmh { }` | nothing | `ddr=1 looks; ddr=2 with cpufreq=1 votes` |
 | `battery-uefi` | nothing | nothing | `battery=1` |
-| `buttons-pmic` | `spmi { }` | `buttons { }`: `pon`, `volume-up` | `buttons=1` |
+| `buttons-pmic` | `spmi { }` | `buttons { }`: `pon`, one of `volume-up` or `volume-down` | `buttons=1` |
 | `adsp` | `rpmh { }`; `ipc { }` | `adsp { }`: `firmware`, `memory`, `memory-size` | `adsp=1` |
 | `touch-goodix` | `pins { }`; `clocks { }`; `rpmh { }` | `touch { }`: `serial-engine`, `clocks`, `vote-register`, `votes`, `bus-pins`, `interrupt`, `reset`, `io-supply`, `analog-enable`, `vendor-pins`, `coordinates` | `touchscreen=1` |
 | `touch-ft3658u` | `pins { }`; `clocks { }`; `rpmh { }` | `touch { }`: `serial-engine`, `clocks`, `vote-register`, `votes`, `bus-pins`, `interrupt`, `reset`, `io-supply`, `analog-supply` | `touchscreen=1` |
 | `speaker-aw88261` | `pins { }`; `clocks { }`; `rpmh { }`; `smmu { }`: `audio-stream` | `speaker { }`: `sda`, `scl`, `addresses`, `interrupts`, `sound-pins`, `sound-function` | `speaker_probe=N looks; sound=N with adsp=1` |
-| `haptic-aw86927` | `pins { }` | `haptic { }`: `sda`, `scl`, `reset`, `interrupt`, `f0-calibration` | `haptic=N` |
+| `haptic-aw86927` | `pins { }` | `haptic { }`: `sda`, `scl`, `reset`, `interrupt` | `haptic=N` |
 | `torch-pm8350c` | `spmi { }`: `channels` | `torch { }`: `flash`, `alarm` | `torch=1 looks; torch=3 is the light for Darwin` |
 | `camera-sm7325` | `spmi { }`: `channels`; `pins { }`; `clocks { }`; `rpmh { }`; `smmu { }`: `camera-stream`; `camera { }` | `camera { }`: `pmic-pins`, `pmic-reset`, `sensors` | `cam=N` |
 | `wifi-wcn6750` | `rpmh { }`; `pins { }`; `spmi { }`; `ipc { }`; `smmu { }`: `wifi-stream` | `wifi { }`: `radio-model`, `dsp-memory`, `dsp-memory-size` | `wifi=1` |

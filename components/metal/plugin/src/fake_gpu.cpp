@@ -167,7 +167,8 @@ bool allZero(const uint32_t* d, uint32_t n) {
 }
 }  // namespace
 
-FakeGpu::FakeGpu(bool async, uint32_t delayUs, bool recovers) : async_(async), recovers_(recovers), delayUs_(delayUs) {
+FakeGpu::FakeGpu(bool async, uint32_t delayUs, bool recovers, const a6xx::DeviceProfile& profile)
+    : profile_(profile), gmem_(profile.gmemBytes), async_(async), recovers_(recovers), delayUs_(delayUs) {
     if (async_) {
         thread_ = std::thread([this] { worker(); });
     }
@@ -2626,8 +2627,8 @@ int FakeGpu::call(uint32_t request, void* data, size_t size) {
         // the kernel's table (bsd/dev/hakios.adreno.c, hakios_gpu_parameter), number for number
         switch (p->param) {
         case kParamGpuId: p->value = 0; return 0;                   // "none, the chip ID says it"
-        case kParamGmemSize: p->value = kGmemBytes; return 0;
-        case kParamChipId: p->value = kChipId | kSpeedBin << 32; return 0;
+        case kParamGmemSize: p->value = profile_.gmemBytes; return 0;
+        case kParamChipId: p->value = profile_.chipId | kSpeedBin << 32; return 0;
         case kParamMaxFreq: p->value = kMaxFrequencyHz; return 0;
         case kParamTimestamp: p->value = uint64_t(nowNs()); return 0;
         case kParamGmemBase: p->value = 0; return 0;
@@ -2635,7 +2636,7 @@ int FakeGpu::call(uint32_t request, void* data, size_t size) {
         case kParamPpPgtable: p->value = 0; return 0;
         case kParamFaults: p->value = stats_.recoveries; return 0;
         case kParamSuspends: p->value = 0; return 0;
-        case kParamHighestBankBit: p->value = 14; return 0;
+        case kParamHighestBankBit: p->value = profile_.highestBankBit; return 0;
         case kParamRaytracing: p->value = 0; return 0;
         case kParamUbwcSwizzle: p->value = 6; return 0;
         case kParamMacrotileMode: p->value = 1; return 0;

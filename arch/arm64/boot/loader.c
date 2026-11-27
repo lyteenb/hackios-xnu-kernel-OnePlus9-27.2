@@ -34,6 +34,7 @@
 #include "src/platform.h"         /* struct platform: what the loader needs to know of a machine; includes the generated platforms.h */
 #include "src/return.c"           /* the reset, the way back from the kernel, the jump into it */
 #include "src/othercore.c"        /* the kernel on another core: the stub it starts in, its log read while it runs */
+#include "src/charger_bq28z610.c"  /* the OnePlus 9 battery gauge, read through I2CDxe */
 #include "src/charger.c"          /* the battery, read through the firmware's charger protocols */
 #include "src/ufs_survey.c"       /* ufs=1: what the phone's storage holds, read only */
 #include "src/block_page.h"       /* the page through which the kernel asks for the storage's blocks, as both sides lay it out */

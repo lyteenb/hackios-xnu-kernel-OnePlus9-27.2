@@ -61,6 +61,7 @@ void hakios_gpu_space(uint64_t * used, uint32_t * live, uint64_t * largest, unsi
 extern uint32_t gpu_va;                 /* boot-arg gpu_va: 0 as before, 1 describe the addresses, 2 also guard them */
 bool hakios_gpu_map(uint64_t address, uint64_t phys, bool read_only);
 void hakios_gpu_mapped(void);
+bool hakios_gpu_watched(uint64_t address, uint64_t size);
 bool hakios_gpu_unmap(uint64_t address, uint64_t size);
 void hakios_gpu_to_memory(void * start, uint64_t size);
 uint32_t hakios_gpu_submit(const uint64_t * addresses, const uint32_t * words, uint32_t count);
@@ -880,6 +881,10 @@ HakiosGPUUserClient::newBuffer(IOMemoryDescriptor * memory, uint64_t from, uint6
 	b->client = false;
 	fBufferCount++;
 	fBufferBytes += size;
+	if (gpu_log >= 2 && hakios_gpu_watched(b->address, size)) {
+		hakios_tl("tl: GW map %#llx + %#llx pid %d handle %u flags %#x after submission %u\n",
+		    b->address, size, proc_selfpid(), *handle, flags, hakios_gpu_last());
+	}
 	return b;
 }
 
@@ -1613,6 +1618,14 @@ HakiosGPUUserClient::submit(struct msm_gem_submit * request)
 		}
 		absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
 		hakios_tl("tl: Q %u at %llu: %u buffers, %u big, %u words\n", request->fence, ns / 1000, request->nr_bos, big, all_words);
+		if (gpu_log >= 2) {
+			const int pid = proc_selfpid();
+			char name[32] = "";
+
+			proc_name(pid, name, sizeof(name));
+			hakios_tl("tl: GI %u: %s[%d], first command %#llx, %u words\n",
+			    request->fence, name, pid, addresses[0], words[0]);
+		}
 	}
 	if (request->flags & MSM_SUBMIT_FENCE_FD_OUT) {
 		request->fence_fd = -1;
@@ -1634,6 +1647,10 @@ HakiosGPUUserClient::submit(struct msm_gem_submit * request)
 
 		if (b != NULL) {
 			b->fence = request->fence;
+			if (gpu_log >= 2 && hakios_gpu_watched(b->address, b->size)) {
+				hakios_tl("tl: GW use %u: %#llx + %#llx handle %u access %#x surface %u\n",
+				    request->fence, b->address, b->size, bos[i].handle, flags, b->surface != NULL);
+			}
 			if (b->surface != NULL && ((flags & (MSM_SUBMIT_BO_WRITE | GPU_SUBMIT_BO_TRACK)) != 0 ||
 			    (flags & (MSM_SUBMIT_BO_READ | MSM_SUBMIT_BO_WRITE)) == 0)) {
 				b->surface->drawn = request->fence;

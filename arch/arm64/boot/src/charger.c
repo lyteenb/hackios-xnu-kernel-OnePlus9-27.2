@@ -30,6 +30,10 @@ charger_poll(void)
 	if (!charger_enabled) {
 		return;
 	}
+	if (PLAT->uefi_bq28z610) {
+		bq28z610_poll();
+		return;
+	}
 	memset(&status, 0, sizeof(status));
 
 	charger_shared.sequence++;

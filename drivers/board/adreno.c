@@ -3294,6 +3294,7 @@ static unsigned gpu_free_count;
  */
 uint32_t gpu_va;                        /* boot-arg gpu_va: 0 as before, 1 describe, 2 also guard */
 #define GPU_ADDRESS_GRANULE     0x10000ull      /* what one allocation is rounded up to */
+static uint64_t gpu_watch_iova;
 static uint64_t gpu_va_used;            /* addresses handed out and not given back */
 static uint32_t gpu_va_live;            /* ... to how many buffers */
 static unsigned gpu_va_holes;           /* the most entries of gpu_free ever in use at once */
@@ -3555,10 +3556,28 @@ hakios_gpu_mapped(void)
 	space_commit(&core_space);
 }
 
+/* The selected allocation granule and its two neighbors. No allocation is changed. */
+bool
+hakios_gpu_watched(uint64_t address, uint64_t size)
+{
+	if (gpu_watch_iova < GPU_ADDRESSES_START + GPU_ADDRESS_GRANULE ||
+	    gpu_watch_iova >= GPU_ADDRESSES_START + GPU_ADDRESSES_SIZE - GPU_ADDRESS_GRANULE || size == 0) {
+		return false;
+	}
+	uint64_t granule = gpu_watch_iova & ~(GPU_ADDRESS_GRANULE - 1);
+	uint64_t start = granule - GPU_ADDRESS_GRANULE;
+	uint64_t end = granule + 2 * GPU_ADDRESS_GRANULE;
+	return address < end && (address >= start || size > start - address);
+}
+
 bool
 hakios_gpu_unmap(uint64_t address, uint64_t size)
 {
 	uint32_t context = smmu_context(&core_space);
+
+	if (gpu_log >= 2 && hakios_gpu_watched(address, size)) {
+		hakios_tl("tl: GW unmap %#llx + %#llx after submission %u\n", address, size, gpu_fence);
+	}
 
 	for (uint64_t offset = 0; offset < size; offset += 4096) {
 		space_map(&core_space, address + offset, 0, 0);
@@ -3731,6 +3750,23 @@ hakios_gpu_submit(const uint64_t *addresses, const uint32_t *words, uint32_t cou
 	return gpu_fence;
 }
 
+/* Inspect the backing page of a GPU fault without changing the page tables. */
+static bool
+gpu_fault_page_mapped(uint64_t address)
+{
+	uint64_t *level2, *level3;
+
+	if (address >> 39 || core_space.root == NULL) {
+		return false;
+	}
+	level2 = space_next(&core_space, &core_space.root[(address >> 30) & 0x1ff], false);
+	if (level2 == NULL) {
+		return false;
+	}
+	level3 = space_next(&core_space, &level2[(address >> 21) & 0x1ff], false);
+	return level3 != NULL && (level3[(address >> 12) & 0x1ff] & 1) != 0;
+}
+
 /* A submission does not come back: what the 3D core and its SMMU context say. */
 void
 hakios_gpu_report(const char *why)
@@ -3752,6 +3788,15 @@ hakios_gpu_report(const char *why)
 	    (uint64_t)rd(gpu.base + CP_IB2_BASE + 4) << 32 | rd(gpu.base + CP_IB2_BASE), rd(gpu.base + CP_IB2_REM_SIZE));
 	step = 0;
 	if (space_faulted(&core_space)) {
+		if (gpu_log >= 2) {
+			uint32_t far = context + SMMU_CB_FAR;
+			uint64_t address = (uint64_t)rd(smmu.base + far + 4) << 32 | rd(smmu.base + far);
+			uint64_t page = address & ~4095ull;
+			printf("adreno: gpu: fault page mapping: previous=%s current=%s next=%s\n",
+			    page >= 4096 && gpu_fault_page_mapped(page - 4096) ? "mapped" : "absent",
+			    gpu_fault_page_mapped(page) ? "mapped" : "absent",
+			    page < (1ull << 39) - 4096 && gpu_fault_page_mapped(page + 4096) ? "mapped" : "absent");
+		}
 		wr(smmu.base + context + SMMU_CB_FSR, SMMU_FSR_ALL);    /* so that the next one shows */
 	}
 }
@@ -4374,6 +4419,7 @@ hakios_adreno_init(void)
 			PE_parse_boot_argn("gpu_recover", &gpu_recover, sizeof(gpu_recover));
 			/* before any client exists: gpu_address_span() must not change under a live buffer */
 			PE_parse_boot_argn("gpu_va", &gpu_va, sizeof(gpu_va));
+			PE_parse_boot_argn("gpu_watch_iova", &gpu_watch_iova, sizeof(gpu_watch_iova));
 			gpu_kept = true;
 			quiet = true;
 			printf("adreno: THE GPU STAYS ON for the system to draw with: the service HakiosGPU\n");

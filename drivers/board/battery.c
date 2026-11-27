@@ -37,6 +37,8 @@
 #define LOADER_BATTERY_VOLTAGE_VALID    (1u << 3)
 #define LOADER_BATTERY_CHARGING         (1u << 4)
 #define LOADER_BATTERY_SOC_ESTIMATED    (1u << 5)
+#define LOADER_BATTERY_DIRECT_GAUGE     (1u << 6)
+#define LOADER_BATTERY_FULL             (1u << 7)
 #define LOADER_PAGE_SIZE                0x4000UL
 
 struct loader_battery {
@@ -285,14 +287,21 @@ battery_tell_ios(const struct loader_battery *sample)
 	const int external = (sample->flags & LOADER_BATTERY_CHARGER_PRESENT) != 0;
 	/* (a current that cannot be is none: battery_core.h, BAT_MOST_MA) */
 	const int ma = sample->current_ma >= -BAT_MOST_MA && sample->current_ma <= BAT_MOST_MA ? sample->current_ma : 0;
-	const int gaining = external && ma < BAT_GAINING_MA;
+	const bool direct_gauge = (sample->flags & LOADER_BATTERY_DIRECT_GAUGE) != 0;
+	const bool gaining = direct_gauge ? (sample->flags & LOADER_BATTERY_CHARGING) != 0 :
+	    external && ma < BAT_GAINING_MA;
 	struct hakios_battery_state state;
 
 	if (battery_source_dsp) {
 		return;
 	}
-	battery_shown_tenths = bat_shown_tenths(battery_shown_tenths,
-	    bat_estimate_tenths(sample->soc_percent, (sample->flags & LOADER_BATTERY_SOC_ESTIMATED) != 0, mv, ma), gaining);
+	/* The direct gauge measures the charge of a series pack. */
+	if (direct_gauge) {
+		battery_shown_tenths = sample->soc_percent * 10;
+	} else {
+		battery_shown_tenths = bat_shown_tenths(battery_shown_tenths,
+		    bat_estimate_tenths(sample->soc_percent, (sample->flags & LOADER_BATTERY_SOC_ESTIMATED) != 0, mv, ma), gaining);
+	}
 	if (battery_shown_override <= 100) {
 		battery_shown_tenths = (int)battery_shown_override * 10;
 	}
@@ -305,7 +314,9 @@ battery_tell_ios(const struct loader_battery *sample)
 	state.present = (sample->flags & LOADER_BATTERY_PRESENT) != 0;
 	state.external = external;
 	/* (POWER_SUPPLY_STATUS_*: charging 1, discharging 2, not charging 3, full 4) */
-	state.status = !external ? 2 : gaining ? 1 : battery_shown_tenths >= 1000 ? 4 : 3;
+	const bool full = direct_gauge ? (sample->flags & LOADER_BATTERY_FULL) != 0 : battery_shown_tenths >= 1000;
+	state.status = !external ? 2 : gaining ? 1 : full ? 4 : 3;
+	state.direct_gauge = direct_gauge;
 	lck_mtx_lock(&battery_report_lock);
 	if (!battery_source_dsp) {
 		battery_time_tell(&state);

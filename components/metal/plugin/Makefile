@@ -56,6 +56,8 @@ IOS_CXX   ?= $(XNUDEPS)/host/bin/xnu-clang++ -arch $(IOS_ARCH) -isysroot $(SDK) 
 IOS_AR    ?= llvm-ar --format=darwin rcs
 endif
 
+IOS_LINK  ?= $(IOS_CXX)
+
 CORE      = src/pm4.cpp src/gpu.cpp src/command.cpp src/compute.cpp src/texture.cpp src/render.cpp src/link.cpp src/compiler.cpp src/metallib.cpp src/c_api.cpp
 HOST      = $(CORE) src/fake_gpu.cpp
 TESTS     = $(wildcard tests/*_test.cpp) tests/main.cpp
@@ -99,6 +101,9 @@ darwin: ios
 
 # with MESA=1 the compiler goes to the phone too, against the iOS build of Mesa's libraries (IOS_MESA_BUILD, tools/compiler.mk)
 IOS_CXXFLAGS = -std=c++17 -O2 -Wall -Wextra -Werror
+ifeq ($(A660_COMPOSITOR_PROBE),1)
+IOS_CXXFLAGS += -DHAKIOS_METAL_A660_COMPOSITOR_PROBE
+endif
 IOS_LIBS     =
 ifneq ($(strip $(MESA)),)
 IOS_CXXFLAGS += -DHAKIOS_METAL_MESA $(HAKIOS_METAL_IOS_MESA_CXXFLAGS)
@@ -122,7 +127,7 @@ out/ios/libhakios-metal.a: $(CORE) src/fake_gpu.cpp src/iokit_transport.cpp $(wi
 # (and the front end's archive, as the host tests: a probe linked before the front end changed tests the old one)
 out/ios/hakios-metal-probe: tools/probe.cpp out/ios/libhakios-metal.a $(wildcard tests/fixtures/*.hpp) \
 		$(if $(strip $(MESA)),$(IOS_MESA_BUILD)/src/compiler/air/libair.a)
-	$(IOS_CXX) $(IOS_CXXFLAGS) -Iinclude -o $@ tools/probe.cpp out/ios/libhakios-metal.a $(IOS_LIBS) \
+	$(IOS_LINK) $(IOS_CXXFLAGS) -Iinclude -o $@ tools/probe.cpp out/ios/libhakios-metal.a $(IOS_LIBS) \
 		-framework IOKit -framework CoreFoundation -framework IOSurface
 
 # render_test on the phone, the fake GPU as on the host: the same encoding timed on both processors

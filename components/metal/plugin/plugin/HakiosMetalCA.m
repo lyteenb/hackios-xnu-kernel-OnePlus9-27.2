@@ -3160,7 +3160,7 @@ hm_function_constants_declared(id function, hakios_metal_constant *out, unsigned
 		hakios_metal_constant constants[64];
 		unsigned count = hm_function_constants(function, constants, 64);
 
-		kernel = hakios_metal_kernel_compile_bitcode_constants([air bytes], [air length], constants, count);
+		kernel = hakios_metal_kernel_compile_bitcode_for_device(_gpu, [air bytes], [air length], constants, count);
 		if (kernel != NULL) {
 			hm_dump_function("cs", function, "metal_dump=fn", constants, count);
 		}
@@ -3524,11 +3524,11 @@ hm_linked_of(MTLRenderPipelineDescriptor *d, NSString *label, hakios_metal_linke
 				}
 				hm_print("a render pipeline, %s + %s, links%s\n", [[vs name] UTF8String], [[fs name] UTF8String], [names UTF8String]);
 			}
-			program = hakios_metal_program_new_bitcode_linked([vsAir bytes], [vsAir length], vsConstants, vsCount,
+			program = hakios_metal_program_new_bitcode_linked_for_device(_gpu, [vsAir bytes], [vsAir length], vsConstants, vsCount,
 									  fsAir != nil ? [fsAir bytes] : NULL, fsAir != nil ? [fsAir length] : 0, fsConstants,
 									  fsCount, linked, linkedCount, format);
 		} else {
-			program = hakios_metal_program_new_bitcode_constants([vsAir bytes], [vsAir length], vsConstants, vsCount,
+			program = hakios_metal_program_new_bitcode_for_device(_gpu, [vsAir bytes], [vsAir length], vsConstants, vsCount,
 									     fsAir != nil ? [fsAir bytes] : NULL, fsAir != nil ? [fsAir length] : 0,
 									     fsConstants, fsCount, format);
 		}

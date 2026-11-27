@@ -1,4 +1,5 @@
 #include "hakios-metal/command.hpp"
+#include "hakios-metal/device_profile.hpp"
 #include "hakios-metal/texture.hpp"
 
 #include <algorithm>
@@ -573,6 +574,10 @@ bool CommandBuffer::copy(const Buffer& from, uint64_t fromOffset, const Buffer& 
         return true;
     }
     if (fromOffset % 4 || toOffset % 4 || length % 4) {
+        Gpu& gpu = queue_.gpu();
+        if (!gpu.usesVerifiedCommandTables() && !gpu.usesA660CompositorProbe()) {
+            return fail("a byte copy needs verified GPU command tables");
+        }
         // the command processor moves words; a copy of bytes goes through the 2D engine instead (a pass of its own).
         // MapKit's snapshot service copies rows of 2 bytes into its textures.
         std::string why;
@@ -581,7 +586,8 @@ bool CommandBuffer::copy(const Buffer& from, uint64_t fromOffset, const Buffer& 
             return fail(std::string("no memory for the copy's table: ") + why);
         }
         pm4::Stream added;
-        render::encodeBytes(added, from.gpuAddress() + fromOffset, to.gpuAddress() + toOffset, length, table.gpuAddress(), table.contents());
+        render::encodeBytes(added, from.gpuAddress() + fromOffset, to.gpuAddress() + toOffset, length,
+                            table.gpuAddress(), table.contents(), {}, *gpu.profile());
         appendStream(stream_, added);
         use(from, false);
         use(to, true);
@@ -694,29 +700,26 @@ std::shared_ptr<Texture> CommandQueue::nullTexture(std::string* why) {
     return null_;
 }
 
-namespace {
-// the A635's SP cores and fibers an SP (freedreno_devices.py, the 7c+ Gen 3 entry: num_ccu 2, fibers_per_sp 128 * 2 * 16)
-constexpr uint32_t kSpCores = 2;
-constexpr uint32_t kFibersPerSp = 128 * 2 * 16;
-}  // namespace
-
 std::shared_ptr<Buffer> CommandQueue::privateMemory(uint32_t bytes, bool perWave, PrivateMemory* out, std::string* why) {
+    const auto* profile = gpu_.profile();
+    if (profile == nullptr) {
+        if (why) *why = "private memory requires a known GPU profile";
+        return nullptr;
+    }
+
     std::lock_guard<std::mutex> g(lock_);
     const int l = perWave ? 1 : 0;
-    if (privatePerFiber_[l] < bytes) {
-        uint32_t perFiber = 512;
-        while (perFiber < bytes) perFiber *= 2;
-        const uint64_t perSp = (uint64_t(perFiber) * kFibersPerSp + 4095) & ~uint64_t(4095);
-        std::shared_ptr<Buffer> b = newBuffer(gpu_, perSp * kSpCores, why);
-        if (b == nullptr) return nullptr;
-        private_[l].push_back(std::move(b));
+    uint32_t perFiber = std::max(512u, privatePerFiber_[l]);
+    while (perFiber < bytes) perFiber *= 2;
+    const uint64_t perSp = (uint64_t(perFiber) * profile->fibersPerSp + 4095) & ~uint64_t(4095);
+    if (privatePerFiber_[l] < perFiber) {
+        // On A6xx, Mesa's A6xxGPUInfo uses one shader processor core per CCU.
+        auto buffer = newBuffer(gpu_, perSp * profile->numCcu, why);
+        if (buffer == nullptr) return nullptr;
+        private_[l].push_back(std::move(buffer));
         privatePerFiber_[l] = perFiber;
     }
-    const uint32_t perFiber = privatePerFiber_[l];
-    out->address = private_[l].back()->gpuAddress();
-    out->perFiber = perFiber;
-    out->perSp = uint32_t((uint64_t(perFiber) * kFibersPerSp + 4095) & ~uint64_t(4095));
-    out->perWave = perWave;
+    *out = {private_[l].back()->gpuAddress(), perFiber, uint32_t(perSp), perWave};
     return private_[l].back();
 }
 

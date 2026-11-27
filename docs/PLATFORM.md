@@ -11,6 +11,8 @@
 | GPU | Adreno 660，chip-id `0x06060001` |
 | 面板 | Samsung `amb655x`，1080 × 2400 |
 | 触控 | Samsung S6SY792，I2C 地址 `0x48` |
+| 实体键 | PMK8350 的电源键和 RESIN 音量上，PM8350 GPIO6 音量下 |
+| 电池 | BQ28Z610，UEFI loader 采样并向 Darwin 共享 |
 | UEFI payload | `SILICIUM_UEFI.fd`，base `0x9FD00000`，size `0x200000`，boot header v3 |
 | Darwin 身份 | `iPhone12,1`，Darwin 27.2 / iOS 27.2，build `24B119` |
 

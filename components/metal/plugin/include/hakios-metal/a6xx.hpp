@@ -4093,9 +4093,9 @@ constexpr uint32_t binControlGmem(bool lrzFeedback, uint32_t binw, uint32_t binh
 // own everything below it (tu_cmd_buffer.cc tu6_emit_ccu_cntl, gmem: ccu_offset_gmem = gmem - num_ccu * color cache /
 // fraction); depth cache unused (no depth attachment in a GMEM pass here). 0x3c400000 on this chip
 constexpr uint32_t kGmemCcuColorOffset = kGmemBytes - kNumCcu * kSysmemPerCcuColorCacheSize / kGmemCcuColorCacheFraction;
-constexpr uint32_t rbCcuCntlGmem() {
-    return (kHasGmemFastClear ? 0u : A6XX_RB_CCU_CNTL_GMEM_FAST_CLEAR_DISABLE) | A6XX_RB_CCU_CNTL_COLOR_OFFSET_HI(kGmemCcuColorOffset >> 21) |
-           A6XX_RB_CCU_CNTL_COLOR_CACHE_SIZE(CCU_CACHE_SIZE_QUARTER) | A6XX_RB_CCU_CNTL_COLOR_OFFSET(kGmemCcuColorOffset & 0x1fffff);
+constexpr uint32_t rbCcuCntlGmem(uint32_t colorOffset = kGmemCcuColorOffset) {
+    return (kHasGmemFastClear ? 0u : A6XX_RB_CCU_CNTL_GMEM_FAST_CLEAR_DISABLE) | A6XX_RB_CCU_CNTL_COLOR_OFFSET_HI(colorOffset >> 21) |
+           A6XX_RB_CCU_CNTL_COLOR_CACHE_SIZE(CCU_CACHE_SIZE_QUARTER) | A6XX_RB_CCU_CNTL_COLOR_OFFSET(colorOffset & 0x1fffff);
 }
 static_assert(rbCcuCntlGmem() == 0x3c400000, "the GMEM CCU layout turnip computes for this chip");
 

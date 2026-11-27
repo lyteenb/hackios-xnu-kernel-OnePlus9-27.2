@@ -273,6 +273,8 @@ struct kernel_live {
 #define LOADER_BATTERY_VOLTAGE_VALID    (1u << 3)
 #define LOADER_BATTERY_CHARGING         (1u << 4)
 #define LOADER_BATTERY_SOC_ESTIMATED    (1u << 5)
+#define LOADER_BATTERY_DIRECT_GAUGE     (1u << 6)
+#define LOADER_BATTERY_FULL             (1u << 7)
 
 struct loader_battery {
 	uint64_t magic;

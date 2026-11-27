@@ -473,7 +473,9 @@ class Check(Sandbox):
                 ('/ {\n\tbuttons {\n\t\tpon = <0x013>;\n\t\tvolume-up = <0x8d00>;\n\t};\n};\n', 'SPMI slave << 8'),
                 ('/ {\n\tbuttons {\n\t\tpon = <0x100>;\n\t\tvolume-up = <0x18d>;\n\t};\n};\n', 'SPMI slave << 8'),
                 ('/ {\n\tbuttons {\n\t\tpon = <0x18d>;\n\t\tvolume-up = <0x18d>;\n\t};\n};\n', 'two peripherals'),
-                ('/ {\n\tbuttons {\n\t\tpon = <0x013>;\n\t};\n};\n', '"volume-up" is missing')):
+                ('/ {\n\tbuttons {\n\t\tpon = <0x013>;\n\t\tvolume-down = <0x18d>;\n\t};\n};\n', None),
+                ('/ {\n\tbuttons {\n\t\tpon = <0x013>;\n\t\tvolume-up = <0x18d>;\n\t\tvolume-down = <0x18e>;\n\t};\n};\n', 'name exactly one GPIO'),
+                ('/ {\n\tbuttons {\n\t\tpon = <0x013>;\n\t};\n};\n', 'name exactly one GPIO')):
             with self.subTest(section=section):
                 path.write_text(listed + section)
                 if reason is None:
@@ -492,6 +494,8 @@ class Check(Sandbox):
         self.assertEqual(self.problems(), '')
         self.assertIn('.channels = 0x0c600000,', boards.table_text(*boards.load()))
         self.assertIn('.buttons = { .pon = 0x013, .volume_up = 0x18d },', text)
+        path.write_text(listed + '/ {\n\tbuttons {\n\t\tpon = <0x013>;\n\t\tvolume-down = <0x18d>;\n\t};\n};\n')
+        self.assertIn('.buttons = { .pon = 0x013, .volume_down = 0x18d },', boards.table_text(*boards.load()))
 
     def test_a_version_7_arbiters_bus_is_the_soc_files(self):
         self.soc('\tthermal {', '\tspmi {\n\t\tcore = <0xc440000>;\n\t\tcnfg = <0xc40a000>;\n\t\tobserver = <0xe600000>;\n'

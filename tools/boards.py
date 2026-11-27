@@ -133,7 +133,7 @@ BOARD_SCHEMA = {
     'thermal': {'floor_mhz': ([int], False)},
     'torch': {'flash': (int, True), 'alarm': (int, True)},
     'haptic': {'sda': (int, True), 'scl': (int, True), 'reset': (int, True), 'interrupt': (int, True),
-               'f0_calibration': (int, True)},
+               'chip': (('aw86927', 'aw8697'), False), 'f0_calibration': (int, False)},
     'imu': {'sda': (int, True), 'scl': (int, True), 'interrupt': (int, True), 'address': (int, True),
             'full_scale': (int, True), 'mount': ([str], True)},
     'touch': {'serial_engine': (int, True), 'clocks': ([int], True), 'vote_register': (int, True), 'votes': ([int], True),
@@ -152,7 +152,8 @@ BOARD_SCHEMA = {
                   'firmware': (str, False), 'rampatch': (str, False), 'nvm': (str, False)},
     'speaker': {'sda': (int, True), 'scl': (int, True), 'addresses': ([int], True), 'interrupts': ([int], True),
                 'sound_pins': ([int], True), 'sound_function': (int, True), 'tdm': (int, False)},
-    'buttons': {'pon': (int, True), 'volume_up': (int, True), 'pon_name': (str, False), 'volume_up_name': (str, False)},
+    'buttons': {'pon': (int, True), 'volume_up': (int, False), 'volume_down': (int, False),
+                'pon_name': (str, False), 'volume_up_name': (str, False), 'volume_down_name': (str, False)},
     'rtc': {'peripheral': (int, True), 'name': (str, False)},
     'adsp': {'firmware': (str, True), 'memory': (int, True), 'memory_size': (int, True),
              'charge_counter_divisor': (int, False)},
@@ -171,7 +172,7 @@ BOARD_SCHEMA = {
              'dsp_memory_size': (int, False), 'pins': ([int], False), 'supplies': ([str], False)},
     'storage': {'type_guid': (str, True), 'unique_guid': (str, True), 'first_lba': (U64, True), 'last_lba': (U64, True),
                 'write_first': (U64, True)},
-    'loader': {'fb_base': (U64, False), 'log_other_cpu': (bool, False), 'uefi_charger': (bool, False)},
+    'loader': {'fb_base': (U64, False), 'log_other_cpu': (bool, False), 'uefi_charger': (bool, False), 'uefi_bq28z610': (bool, False)},
     'uefi': {'fd_base': (U64, True), 'fd_size': (int, True), 'header_version': (int, False)},
     'boot': {'fastboot_product': (str, True), 'cpus': (int, True), 'bootargs': ([str], True)},
 }
@@ -389,6 +390,8 @@ def features_text():
         of_soc, of_board = feature_requirements(feature)
         cells = ['; '.join(f'`[{section}]`' + (': ' + ', '.join(f'`{key}`' for key in keys) if keys else '')
                            for section, keys in part.items()) or 'nothing' for part in (of_soc, of_board)]
+        if feature == 'buttons-pmic':
+            cells[1] += ', one of `volume-up` or `volume-down`'
         out.append(f'| `{feature}` | {cells[0]} | {cells[1]} | `{FEATURE_BOOTARGS.get(feature, "")}` |')
     out += ['',
             'The brightness (`[backlight]`), the thermal floors (`[thermal]`), the PMIC\'s clock (`[rtc]`, which',
@@ -677,7 +680,14 @@ def load(problems=None):
             wires = [motor[key] for key in ('sda', 'scl', 'reset', 'interrupt')]
             if any(not 0 <= pin <= 255 for pin in wires) or len(set(wires)) != len(wires):
                 problems.add(f'{rel} [haptic]', 'sda, scl, reset and interrupt are four different pins of the SoC, 0 to 255')
-            if not 0 <= motor['f0_calibration'] <= 0x3f:
+            if motor.get('chip') == 'aw8697':
+                if 'f0_calibration' in motor or 'haptic-aw86927' in data.get('features', []):
+                    problems.add(f'{rel} [haptic]', 'the AW8697 identity probe takes no AW86927 calibration or feature')
+                if 'pins' not in soc:
+                    problems.add(f'{rel} [haptic]', 'the AW8697 identity probe needs pins { } in soc.dtsi')
+            elif 'f0_calibration' not in motor:
+                problems.add(f'{rel} [haptic]', '"f0_calibration" is missing')
+            elif not 0 <= motor['f0_calibration'] <= 0x3f:
                 problems.add(f'{rel} [haptic]', 'f0_calibration is the six bits of the chip\'s trim register')
         imu = data.get('imu')
         if imu is not None:
@@ -777,13 +787,16 @@ def load(problems=None):
                                  "peripheral's registers (0x2ee: slave 2, registers 0xee00)")
         keys = data.get('buttons')
         if keys is not None:
-            for key in ('pon', 'volume_up'):
+            volume_keys = [key for key in ('volume_up', 'volume_down') if key in keys]
+            if len(volume_keys) != 1:
+                problems.add(f'{rel} [buttons]', 'name exactly one GPIO as volume_up or volume_down')
+            for key in ('pon', *volume_keys):
                 # slave << 8 | peripheral: sixteen slaves on the bus, and no peripheral 0 for a key
                 if not 0 < keys[key] <= 0xfff or keys[key] & 0xff == 0:
                     problems.add(f'{rel} [buttons]', f'{key} = {keys[key]:#x}: SPMI slave << 8 | the high byte of the '
                                                      "peripheral's registers (0x18d: slave 1, registers 0x8d00)")
-            if keys['pon'] == keys['volume_up']:
-                problems.add(f'{rel} [buttons]', 'pon and volume_up are two peripherals')
+                if key != 'pon' and keys[key] == keys['pon']:
+                    problems.add(f'{rel} [buttons]', f'pon and {key} are two peripherals')
         clock = data.get('rtc')
         if clock is not None and (not 0 < clock['peripheral'] <= 0xfff or clock['peripheral'] & 0xff == 0):
             problems.add(f'{rel} [rtc]', f'peripheral = {clock["peripheral"]:#x}: SPMI slave << 8 | the high byte of the '
@@ -1059,16 +1072,18 @@ def table_text(socs, boards):
                        f'.rsc = {rpmh["rsc"]:#010x}, .tcs_offset = {rpmh["tcs_offset"]:#x} }},')
         keys = board.get('buttons')
         if keys:
-            names = ''.join(f', .{key} = {c_string(keys[key])}' for key in ('pon_name', 'volume_up_name') if key in keys)
-            out.append(f'\t\t.buttons = {{ .pon = {keys["pon"]:#05x}, .volume_up = {keys["volume_up"]:#05x}{names} }},')
+            gpio = 'volume_up' if 'volume_up' in keys else 'volume_down'
+            names = ''.join(f', .{key} = {c_string(keys[key])}' for key in ('pon_name', f'{gpio}_name') if key in keys)
+            out.append(f'\t\t.buttons = {{ .pon = {keys["pon"]:#05x}, .{gpio} = {keys[gpio]:#05x}{names} }},')
         clock = board.get('rtc')
         if clock:
             name = f', .name = {c_string(clock["name"])}' if 'name' in clock else ''
             out.append(f'\t\t.rtc = {{ .peripheral = {clock["peripheral"]:#05x}{name} }},')
         motor = board.get('haptic')
         if motor:
+            chip = '.aw8697_probe = true' if motor.get('chip') == 'aw8697' else f'.f0_calibration = {motor["f0_calibration"]:#04x}'
             out.append(f'\t\t.haptic = {{ .sda = {motor["sda"]}, .scl = {motor["scl"]}, .reset = {motor["reset"]}, '
-                       f'.interrupt = {motor["interrupt"]}, .f0_calibration = {motor["f0_calibration"]:#04x} }},')
+                       f'.interrupt = {motor["interrupt"]}, {chip} }},')
         imu = board.get('imu')
         if imu:
             axis, sign = imu_mounting(imu['mount'])
@@ -1241,6 +1256,7 @@ def platforms_text(socs, boards):
         fields += [f'.psci_hvc = {int(platform["psci"] == "hvc")}',
                    f'.log_other_cpu = {int(loader.get("log_other_cpu", False))}',
                    f'.uefi_charger = {int(loader.get("uefi_charger", False))}',
+                   f'.uefi_bq28z610 = {int(loader.get("uefi_bq28z610", False))}',
                    f'.cores = {platform["cores"]}', f'.core_shift = {platform["core_shift"]}',
                    f'.timeout_scale = {platform.get("timeout_scale", 0)}',
                    f'.small_cores = {platform.get("small_cores", 0):#x}',
@@ -1529,10 +1545,11 @@ def new_board(name, soc_name, dts=None, panel=None, description=None, moved=Fals
         out.end()
 
     keys = board.get('buttons', {})
-    if 'pon' in keys and 'volume_up' in keys:
+    if 'pon' in keys and any(key in keys for key in ('volume_up', 'volume_down')):
         section(('The keys on the PMICs, for the feature "buttons-pmic": SPMI slave << 8 | the high byte of the',
                  "peripheral's registers."), 'buttons',
-                [(key, keys[key]) for key in ('pon', 'pon_name', 'volume_up', 'volume_up_name') if key in keys])
+                [(key, keys[key]) for key in ('pon', 'pon_name', 'volume_up', 'volume_up_name',
+                                             'volume_down', 'volume_down_name') if key in keys])
     clock = board.get('rtc', {})
     if 'peripheral' in clock:
         section(("The PMIC's real-time clock, read once at boot (rtc=0 leaves it alone): SPMI slave << 8 | the high byte",
@@ -1684,7 +1701,7 @@ def compare_text(name, board, soc, tree_soc, tree_board, tree_name):
 
     out += side(f'arch/arm64/boot/dts/{name}/soc.dtsi', soc, tree_soc, SOC_SCHEMA, lambda key, value: dts_value(key, value, soc_number))
     out += side(f'{name}/board.dts', board, tree_board, BOARD_SCHEMA,
-                lambda key, value: f'<{value:#05x}>' if key in ('pon', 'volume_up', 'flash', 'alarm', 'peripheral') else dts_value(key, value))
+                lambda key, value: f'<{value:#05x}>' if key in ('pon', 'volume_up', 'volume_down', 'flash', 'alarm', 'peripheral') else dts_value(key, value))
     out.append(f'{counts["same"]} values as in the tree, {counts["differ"]} differ, {counts["unsaid"]} the tree does not say' +
                (' (clock offsets, the I/O window, firmware names and what was measured on the phone are never in one)'
                 if counts['unsaid'] else ''))

@@ -10,7 +10,7 @@
 
 	// Nothing yet: a feature is listed once its driver has been seen to work on this board
 	// (Documentation/porting.md goes through them in the order to try).
-	features = "touch-s6sy792", "gpu-a660", "cpufreq-epss";
+	features = "touch-s6sy792", "gpu-a660", "cpufreq-epss", "battery-uefi", "buttons-pmic";
 
 	// The panel: qcom,mdss_dsi_samsung_amb655x_dsc_cmd ("samsung amb655x fhd cmd mode dsc dsi panel")
 	backlight {
@@ -20,6 +20,11 @@
 		max = <4095>;
 		bytes = <2>;
 		byte-order = "lsb-first";
+	};
+
+	// Use available Android OPPs near 1 GHz: 998.4/1075.2/1075.2 MHz.
+	thermal {
+		floor-mhz = <998 1075 1075>;
 	};
 
 	// The PMIC's real-time clock, read once at boot (rtc=0 leaves it alone): SPMI slave << 8 | the high byte
@@ -44,6 +49,15 @@
 		// memory-size = <0x02100000>;
 	// };
 
+	// AW8697 at 0x5a on QUPv3 SE17; the vendor DTS supplies the reset and IRQ.
+	haptic {
+		chip = "aw8697";
+		sda = <72>;
+		scl = <73>;
+		reset = <75>;
+		interrupt = <14>;
+	};
+
 	// The microphones' codec, for the feature "mic-wcd938x": its reset pin is from the tree.
 	mic {
 		codec-reset = <88>;
@@ -63,8 +77,18 @@
 		analog-enable = <74>;
 	};
 	// The loader under the phone's UEFI. fb-base is the GOP base reported by the OnePlus 9 UEFI.
+	// LE2110: the PMK8350 RESIN input is volume up. PM8350 GPIO6 is volume down.
+	buttons {
+		pon = <0x013>;
+		pon-name = "the PMK8350's power-on block";
+		volume-down = <0x18d>;
+		volume-down-name = "GPIO6 of the PM8350";
+	};
+
 	loader {
 		fb-base = <0xE4D00000>;
+		uefi-charger;
+		uefi-bq28z610;
 	};
 
 	// The OnePlus 9 UEFI payload, packed by arch/arm64/boot/mkboot.py.
@@ -78,7 +102,7 @@
 	boot {
 		fastboot-product = "lemonade";
 		cpus = <4>;
-		bootargs = "sb_delay=8", "bootcpu=7", "cpufreq=0", "ddr=0", "gpu=0", "metal=0", "wifi=0", "adsp=0", "ufs=0", "ufs_native=0", "ufs_write=0", "var_store=0";
+		bootargs = "sb_delay=8", "bootcpu=7", "cpufreq=0", "ddr=0", "gpu=0", "metal=0", "wifi=0", "bt=0", "thermal=0", "adsp=0", "ufs=0", "ufs_native=0", "ufs_write=0", "var_store=0";
 	};
 
 	// The Adreno 660 profile. The board data is from the LE2110 device tree and the existing 16.5 bring-up.

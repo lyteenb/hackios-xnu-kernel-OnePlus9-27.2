@@ -46,6 +46,7 @@ struct hakios_battery_state {
 	int32_t usb_type;
 	int32_t usb_voltage_uv, usb_current_ua;
 	int32_t minutes_to_empty, minutes_to_full;      /* -1 not known or not what is happening, -2 not to be said */
+	uint32_t direct_gauge;
 };
 
 extern "C" void HakiosBatteryReport(const void * state, unsigned size);
@@ -128,9 +129,12 @@ HakiosBattery::report(const struct hakios_battery_state * b)
 	percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
 	setBatteryInstalled(b->present != 0);
 	setExternalConnected(b->external != 0);
-	setExternalChargeCapable(b->external != 0);
+	if (!b->direct_gauge) {
+		setExternalChargeCapable(b->external != 0);
+	}
 	setIsCharging(charging);
-	flag("FullyCharged", b->external && (b->status == 4 || percent == 100));    /* POWER_SUPPLY_STATUS_FULL */
+	const bool full = b->status == 4 || (!b->direct_gauge && percent == 100);
+	flag("FullyCharged", b->external && full);
 	flag("AppleRawExternalConnected", b->external != 0);
 	setCurrentCapacity((unsigned) percent);
 	setMaxCapacity(100);

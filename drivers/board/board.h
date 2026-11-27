@@ -215,9 +215,9 @@ struct hakios_board {
 
 	/* the keys on the PMICs (board: buttons { }); a peripheral is slave << 8 | the high byte of its registers */
 	struct {
-		uint16_t pon;                   /* the power-on block: power, and volume down on its RESIN_N */
-		uint16_t volume_up;             /* the GPIO volume up pulls low */
-		const char *pon_name, *volume_up_name;  /* for the log: "GPIO6 of the PM8350" */
+		uint16_t pon;                   /* power on KPDPWR_N and one volume key on RESIN_N */
+		uint16_t volume_up, volume_down; /* one GPIO, named by the volume key that pulls it low */
+		const char *pon_name, *volume_up_name, *volume_down_name;
 	} buttons;
 
 	/* the PMIC's real-time clock (board: rtc { }); a peripheral as in buttons { }. 0: the board names none, nothing is read */
@@ -231,6 +231,7 @@ struct hakios_board {
 		uint8_t sda, scl;               /* its I2C bus's two lines */
 		uint8_t reset;                  /* high: the chip runs */
 		uint8_t interrupt;              /* low when the chip has something to say (only looked at) */
+		bool aw8697_probe;              /* identity only; this chip has different registers */
 		uint8_t f0_calibration;         /* what Android's driver found for this motor's resonance (its trim register) */
 	} haptic;
 

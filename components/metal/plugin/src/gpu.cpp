@@ -1,4 +1,5 @@
 #include "hakios-metal/gpu.hpp"
+#include "hakios-metal/device_profile.hpp"
 #include "hakios-metal/pm4.hpp"
 
 #include <cerrno>
@@ -19,6 +20,40 @@ MsmTimespec deadline(Transport& t, int64_t ns) {
     return MsmTimespec{at / 1000000000, at % 1000000000};
 }
 }  // namespace
+
+Gpu::Gpu(std::unique_ptr<Transport> transport, ProbeMode probeMode)
+    : t_(std::move(transport)), profile_(a6xx::profileForChip(chipId())),
+      probeMode_(probeMode) {}
+
+bool Gpu::usesVerifiedCommandTables() const {
+    return profile_ != nullptr && profile_->hardwareEnabled;
+}
+
+bool Gpu::canDispatchCompute() const {
+    return usesVerifiedCommandTables() || usesA660CompositorProbe() ||
+           (profile_ == &a6xx::kA660Profile && probeMode_ == ProbeMode::kA660Compute);
+}
+
+bool Gpu::canClearAndBlit() const {
+    return usesVerifiedCommandTables() || usesA660CompositorProbe() ||
+           (profile_ == &a6xx::kA660Profile &&
+            (probeMode_ == ProbeMode::kA660Blit || probeMode_ == ProbeMode::kA660Draw));
+}
+
+bool Gpu::canDraw() const {
+    return usesVerifiedCommandTables() || usesA660CompositorProbe() ||
+           (profile_ == &a6xx::kA660Profile &&
+            (probeMode_ == ProbeMode::kA660Draw || probeMode_ == ProbeMode::kA660Gmem));
+}
+
+bool Gpu::canUseGmem() const {
+    return usesVerifiedCommandTables() ||
+           (profile_ == &a6xx::kA660Profile && probeMode_ == ProbeMode::kA660Gmem);
+}
+
+bool Gpu::usesA660CompositorProbe() const {
+    return profile_ == &a6xx::kA660Profile && probeMode_ == ProbeMode::kA660Compositor;
+}
 
 int Gpu::param(uint32_t which, uint64_t* value) {
     MsmParam p{};
@@ -167,6 +202,10 @@ int Gpu::submit(uint32_t queue, const Bo& commands, uint32_t offsetBytes, uint32
 
 int Gpu::submit(uint32_t queue, const Bo& commands, const std::vector<std::pair<uint32_t, uint32_t>>& runs, const std::vector<BoUse>& uses,
                 uint32_t* fence) {
+    const bool probeSubmission = profile_ == &a6xx::kA660Profile && probeMode_ != ProbeMode::kOff;
+    if (!usesVerifiedCommandTables() && !probeSubmission) {
+        return ENOTSUP;
+    }
     // (each run is a CP_INDIRECT_BUFFER of its own in the kernel's ring, whose IB_SIZE holds 20 bits: a longer one would
     // run cut short, so it is refused here, as is a count the kernel would refuse)
     if (runs.empty() || runs.size() > kMaxSubmitCmds) {

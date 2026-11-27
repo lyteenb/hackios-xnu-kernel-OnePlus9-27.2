@@ -78,7 +78,7 @@
 #include <thread>
 #include <vector>
 
-#include "hakios-metal/a6xx.hpp"
+#include "hakios-metal/device_profile.hpp"
 #include "hakios-metal/gpu.hpp"
 
 namespace hakios::metal {
@@ -179,7 +179,8 @@ public:
     // ASYNC: submissions run on a thread of their own, after DELAY_US each, as the real GPU runs them after the call
     // has returned; otherwise at once, inside the submit call. RECOVERS: the kernel resets the GPU after a hang
     // (gpu_recover=1); false is the kernel without it, where the first hang ends every later wait at once.
-    explicit FakeGpu(bool async = false, uint32_t delayUs = 0, bool recovers = true);
+    explicit FakeGpu(bool async = false, uint32_t delayUs = 0, bool recovers = true,
+                     const a6xx::DeviceProfile& profile = a6xx::kA635Profile);
     ~FakeGpu() override;
 
     int call(uint32_t request, void* data, size_t size) override;
@@ -205,10 +206,8 @@ public:
     void resume();
 
     // what the kernel says about this GPU, for the fake to say the same and for a test to check it does
-    static constexpr uint64_t kChipId = 0x06030500;      // dt qcom,chipid: an A635-family part, "Adreno 7c+ Gen 3" to Mesa
     static constexpr uint64_t kSpeedBin = 0x75;          // the phone's fuse value above the chip id, as the probe read it
                                                          // (0x7506030500 on 28 October); Mesa's named row for this part
-    static constexpr uint64_t kGmemBytes = 512 * 1024;
     static constexpr uint64_t kMaxFrequencyHz = 550000000;
 
 private:
@@ -333,7 +332,8 @@ private:
                   Ubwc* image);
     uint32_t binQueued_ = 0;   // tiles' streams handed over (CP_SET_BIN_DATA5*) and not yet let go by RM6_BIN_END_OF_DRAWS
     bool binning_ = false;   // between RM6_BIN_VISIBILITY and the first tile: the draws only bin
-    std::vector<uint8_t> gmem_ = std::vector<uint8_t>(a6xx::kGmemBytes);
+    const a6xx::DeviceProfile profile_;
+    std::vector<uint8_t> gmem_;
     bool tileState(uint32_t* binW, uint32_t* binH, uint32_t win[4]);
     bool eventBlit();
     uint64_t alwaysOn_ = 0;     // CP_ALWAYS_ON_COUNTER as the fake keeps it: one more at each CP_REG_TO_MEM of it

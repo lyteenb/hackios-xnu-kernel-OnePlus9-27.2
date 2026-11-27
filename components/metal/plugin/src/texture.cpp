@@ -1,4 +1,5 @@
 #include "hakios-metal/texture.hpp"
+#include "hakios-metal/device_profile.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -439,6 +440,11 @@ const Sampler* samplerById(uint64_t id) {
 }
 
 std::shared_ptr<Texture> Texture::make(Gpu& gpu, const TextureDesc& desc, std::string* why) {
+    if (desc.compressed && gpu.usesA660CompositorProbe()) {
+        TextureDesc linear = desc;
+        linear.compressed = false;
+        return make(gpu, linear, why);
+    }
     const FormatInfo* info = nullptr;
     uint64_t pitch = 0, bytes = 0;
     if (!plan(desc, &info, &pitch, &bytes, why)) {
@@ -468,8 +474,14 @@ std::shared_ptr<Texture> Texture::make(Gpu& gpu, const TextureDesc& desc, std::s
             staging = make(gpu, linear, why);
             if (staging == nullptr) return nullptr;
         }
+        const auto* profile = gpu.profile();
+        if (profile == nullptr) {
+            refuse(why, "no UBWC layout for an unsupported GPU");
+            return nullptr;
+        }
         fd_dev_id id{};
-        id.chip_id = a6xx::kChipId;
+        id.gpu_id = profile->mesaGpuId;
+        id.chip_id = profile->mesaGpuId == 0 ? profile->chipId : 0;
         const struct ::fd_dev_info* dev = ::fd_dev_info_raw(&id);
         fdl_layout l{};
         l.ubwc = true;

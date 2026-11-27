@@ -1161,7 +1161,8 @@ void tableStart(uint8_t* tableCpu) {
 
 // steps 1 to 3 of a pass: the batch start, the CCU set to sysmem, the pass begin -- what a draw and a Clear without a
 // draw both need before the 2D engine or the 3D pipe writes the target
-void passStart(pm4::Stream& stream, uint32_t W, uint32_t H, uint64_t table, const Options& o) {
+void passStart(pm4::Stream& stream, uint32_t W, uint32_t H, uint64_t table, const Options& o,
+               const a6xx::DeviceProfile& profile = a6xx::kA635Profile) {
     // 1. batch start: fd6_emit_restore (fd6_emit.cc:1090-1160) with turnip's tu6_init_hw as the second witness
     // (tu_cmd_buffer.cc:1584-1660): CP_SET_MODE 0; the three invalidates (fd6_cache_inv, fd6_emit.h:271-276; turnip's A6XX
     // path has CACHE_INVALIDATE alone, the kernel already emits both CCU invalidates per submit); HLSQ_INVALIDATE_CMD;
@@ -1177,7 +1178,10 @@ void passStart(pm4::Stream& stream, uint32_t W, uint32_t H, uint64_t table, cons
         event(stream, CACHE_INVALIDATE);
         reg(stream, REG_A6XX_HLSQ_INVALIDATE_CMD, hlsqInvalidateCmdAll());
         stream.waitForIdle();
-        for (const RegWrite& w : kStaticState) reg(stream, w.reg, w.value);
+        for (const RegWrite& w : kStaticState) {
+            const uint32_t value = w.reg == REG_A6XX_SP_DBG_ECO_CNTL ? profile.spDbgEcoCntl : w.value;
+            reg(stream, w.reg, value);
+        }
         {
             uint32_t w[3] = {setDrawState0(0, CP_SET_DRAW_STATE__0_DISABLE_ALL_GROUPS, 0), 0, 0};
             stream.packet(CP_SET_DRAW_STATE, w, 3);
@@ -1193,7 +1197,8 @@ void passStart(pm4::Stream& stream, uint32_t W, uint32_t H, uint64_t table, cons
     // wrote at boot (hakios.adreno.c:2904) and Mesa never sets for this chip -- the switch is the bisect's
     if (o.ccuCntl) {
         stream.waitForIdle();
-        reg(stream, REG_A6XX_RB_CCU_CNTL, rbCcuCntlSysmem() | (o.ccuConcurrentResolve ? A6XX_RB_CCU_CNTL_CONCURRENT_RESOLVE : 0u));
+        reg(stream, REG_A6XX_RB_CCU_CNTL, rbCcuCntlSysmem(profile.sysmemCcuColorOffset()) |
+            (o.ccuConcurrentResolve ? A6XX_RB_CCU_CNTL_CONCURRENT_RESOLVE : 0u));
     }
     // fd6's LRZ_FLUSH at the start of a sysmem pass (fd6_gmem.cc:2001); turnip has none here. Under lrzOff with the LRZ
     // registers below, since it is the LRZ it flushes
@@ -2172,7 +2177,8 @@ bool encodeInPass(pm4::Stream& stream, const Program& program, const RenderPass&
     return encodeDraw(stream, program, pass, draw, vsBindings, fsBindings, vsProgram, fsProgram, table, tableCpu, why, o, false, gmem, afterFetch);
 }
 
-bool encodeBegin(pm4::Stream& stream, const RenderPass& pass, uint64_t table, uint8_t* tableCpu, std::string* why, const Options& o, uint32_t skipClears) {
+bool encodeBegin(pm4::Stream& stream, const RenderPass& pass, uint64_t table, uint8_t* tableCpu, std::string* why,
+                 const Options& o, uint32_t skipClears, const a6xx::DeviceProfile& profile) {
     if (!checkTarget(pass, why)) {
         return false;
     }
@@ -2181,7 +2187,7 @@ bool encodeBegin(pm4::Stream& stream, const RenderPass& pass, uint64_t table, ui
         return false;
     }
     tableStart(tableCpu);
-    passStart(stream, windowOf(pass).first, windowOf(pass).second, table, o);
+    passStart(stream, windowOf(pass).first, windowOf(pass).second, table, o, profile);
     clearAll(stream, pass, clears, table, skipClears);
     zsClears(stream, pass, table);
     return true;
@@ -2194,7 +2200,8 @@ uint32_t alignUp(uint32_t v, uint32_t a) { return (v + a - 1) / a * a; }
 uint32_t divUp(uint32_t v, uint32_t d) { return (v + d - 1) / d; }
 }  // namespace
 
-bool gmemPlan(const RenderPass& pass, GmemPlan* plan, std::string* why, uint32_t likely) {
+bool gmemPlan(const RenderPass& pass, GmemPlan* plan, std::string* why, uint32_t likely,
+              const a6xx::DeviceProfile& profile) {
     likely |= 1u;   // (attachment 0: every pass draws into it)
     if (pass.color0 == nullptr || pass.depth != nullptr || pass.stencil != nullptr) {
         return refuse(why, "a pass without colour attachment 0, or with depth or stencil: sysmem");
@@ -2233,6 +2240,8 @@ bool gmemPlan(const RenderPass& pass, GmemPlan* plan, std::string* why, uint32_t
     // their share whatever the bins' shape), among the likely attachments; an unlikely one has none (its base 0, inside
     // the bins: a stray write there would show, not hang the colour cache above them)
     GmemPlan p;
+    p.profile = profile;
+    const uint32_t colorOffset = profile.gmemCcuColorOffset();
     uint32_t before = 0;
     for (uint32_t i = 0; i < kMaxColorOutputs; i++) {
         const Attachment a = attachmentOf(pass, i);
@@ -2242,9 +2251,9 @@ bool gmemPlan(const RenderPass& pass, GmemPlan* plan, std::string* why, uint32_t
             p.unplanned |= 1u << i;
             continue;
         }
-        p.base[i] = uint32_t(uint64_t(kGmemCcuColorOffset) * before / bytes) & ~0x3fffu;
+        p.base[i] = uint32_t(uint64_t(colorOffset) * before / bytes) & ~0x3fffu;
         before += p.bpp[i];
-        p.room[i] = (uint32_t(uint64_t(kGmemCcuColorOffset) * before / bytes) & ~0x3fffu) - p.base[i];
+        p.room[i] = (uint32_t(uint64_t(colorOffset) * before / bytes) & ~0x3fffu) - p.base[i];
     }
     const uint32_t whole[4] = {0, 0, W - 1, H - 1};
     if (!gmemTiles(&p, whole)) return refuse(why, "a bin too wide for GMEM");
@@ -2254,32 +2263,35 @@ bool gmemPlan(const RenderPass& pass, GmemPlan* plan, std::string* why, uint32_t
 
 bool gmemTiles(GmemPlan* plan, const uint32_t area[4]) {
     GmemPlan p = *plan;
-    p.x0 = area[0] & ~(kTileAlignW - 1);
-    p.y0 = area[1] & ~(kTileAlignH - 1);
+    const uint32_t alignW = p.profile.tileAlignW, alignH = p.profile.tileAlignH;
+    p.x0 = area[0] / alignW * alignW;
+    p.y0 = area[1] / alignH * alignH;
     const uint32_t w = area[2] + 1 - p.x0, h = area[3] + 1 - p.y0;
     // The bin width is fixed once a plan has one: a framebuffer fetch's descriptor holds it as its pitch (encodeInPass,
     // written before the area was known), and a tile laid out narrower read through it as sheared rows (the screen in
     // stripes over two tile columns). Only the grid's corner, the columns, the rows and the bin height follow the area.
     if (p.binW == 0) {
-        p.cols = divUp(alignUp(w, kTileAlignW), kTileMaxW);
-        p.binW = alignUp(divUp(w, p.cols), kTileAlignW);
+        const uint32_t maxW = kTileMaxW / alignW * alignW;
+        p.cols = divUp(w, maxW);
+        p.binW = alignUp(divUp(w, p.cols), alignW);
     } else {
         p.cols = divUp(w, p.binW);
     }
     uint32_t fit = kTileMaxH;
     for (uint32_t i = 0; i < kMaxColorOutputs; i++) {
-        if (p.bpp[i] != 0 && ((p.unplanned >> i) & 1) == 0) fit = std::min(fit, p.room[i] / (p.binW * p.bpp[i]) / kTileAlignH * kTileAlignH);
+        if (p.bpp[i] != 0 && ((p.unplanned >> i) & 1) == 0) fit = std::min(fit, p.room[i] / (p.binW * p.bpp[i]) / alignH * alignH);
     }
-    if (fit < kTileAlignH) return false;
+    fit = fit / alignH * alignH;
+    if (fit < alignH) return false;
     p.rows = divUp(h, fit);
-    p.binH = alignUp(divUp(h, p.rows), kTileAlignH);
+    p.binH = alignUp(divUp(h, p.rows), alignH);
     for (uint32_t k = 0; k < 4; k++) p.area[k] = area[k];
     *plan = p;
     return true;
 }
 
 bool gmemShare(GmemPlan* plan, uint32_t touched) {
-    const uint32_t top = kGmemCcuColorOffset & ~0x3fffu;
+    const uint32_t top = plan->profile.gmemCcuColorOffset() & ~0x3fffu;
     bool changed = false;
     for (uint32_t i = 0; i < kMaxColorOutputs; i++) {
         if (plan->bpp[i] == 0) continue;
@@ -2406,7 +2418,7 @@ void encodeGmem(pm4::Stream& stream, const RenderPass& pass, const GmemPlan& pla
     const auto [W, H] = windowOf(pass);
     // the colour cache out of the tiles' way (it is not pipelined: after a WFI, as the sysmem value is written)
     stream.waitForIdle();
-    reg(stream, REG_A6XX_RB_CCU_CNTL, rbCcuCntlGmem());
+    reg(stream, REG_A6XX_RB_CCU_CNTL, rbCcuCntlGmem(plan.profile.gmemCcuColorOffset()));
     // the event blit's state common to every load and store (event_blit_setup): over the render area in granules
     // (tu6_emit_blit_scissor with align), single-sampled
     const uint32_t bx1 = std::min(alignUp(plan.area[2] + 1, kGmemAlignW), alignUp(W, kGmemAlignW)) - 1;
@@ -2607,11 +2619,13 @@ void encodeGmem(pm4::Stream& stream, const RenderPass& pass, const GmemPlan& pla
     eventTimestamp(stream, PC_CCU_RESOLVE_TS, table + kTableBlitFlushAt, kBlitFlushValue, false);
     waitForWord(stream, table + kTableBlitFlushAt, kBlitFlushValue);
     stream.waitForIdle();
-    reg(stream, REG_A6XX_RB_CCU_CNTL, rbCcuCntlSysmem() | (o.ccuConcurrentResolve ? A6XX_RB_CCU_CNTL_CONCURRENT_RESOLVE : 0u));
+    reg(stream, REG_A6XX_RB_CCU_CNTL, rbCcuCntlSysmem(plan.profile.sysmemCcuColorOffset()) |
+            (o.ccuConcurrentResolve ? A6XX_RB_CCU_CNTL_CONCURRENT_RESOLVE : 0u));
     crumb(0x999);
 }
 
-bool encodeClear(pm4::Stream& stream, const RenderPass& pass, uint64_t table, uint8_t* tableCpu, std::string* why, const Options& o) {
+bool encodeClear(pm4::Stream& stream, const RenderPass& pass, uint64_t table, uint8_t* tableCpu, std::string* why, const Options& o,
+                 const a6xx::DeviceProfile& profile) {
     if (!checkTarget(pass, why)) {
         return false;
     }
@@ -2624,7 +2638,7 @@ bool encodeClear(pm4::Stream& stream, const RenderPass& pass, uint64_t table, ui
         return false;
     }
     tableStart(tableCpu);
-    passStart(stream, windowOf(pass).first, windowOf(pass).second, table, o);
+    passStart(stream, windowOf(pass).first, windowOf(pass).second, table, o, profile);
     clearAll(stream, pass, clears, table);
     zsClears(stream, pass, table);
     passTail(stream, table, o, pass.depth != nullptr);
@@ -2634,7 +2648,8 @@ bool encodeClear(pm4::Stream& stream, const RenderPass& pass, uint64_t table, ui
 uint32_t halfBitsOf(float f) { return halfOf(f); }
 
 bool encodeBlit(pm4::Stream& stream, const Texture& src, uint32_t srcLevel, BlitRect s, const Texture& dst, uint32_t dstLevel, BlitRect d, bool linear,
-                uint64_t table, uint8_t* tableCpu, std::string* why, const Options& o) {
+                uint64_t table, uint8_t* tableCpu, std::string* why, const Options& o,
+                const a6xx::DeviceProfile& profile) {
     const FormatInfo &sf = src.info(), &df = dst.info();
     if (sf.depth || df.depth) {
         return refuse(why, std::string("a copy of a ") + (sf.depth ? sf.name : df.name) + " texture: a depth texture is tiled, the 2D copy is written for linear ones");
@@ -2722,7 +2737,7 @@ bool encodeBlit(pm4::Stream& stream, const Texture& src, uint32_t srcLevel, Blit
     const bool srgb = linear && scaled && sf.srgb;
     if (srgb) ifmt = R2D_UNORM8_SRGB;
     tableStart(tableCpu);
-    passStart(stream, DL.width, DL.height, table, o);
+    passStart(stream, DL.width, DL.height, table, o, profile);
     const uint32_t blit = rb2dBlitCntlCopy(dstFmt, ifmt) | (o.rotate2d & A6XX_RB_2D_BLIT_CNTL_ROTATE__MASK);
     reg(stream, REG_A6XX_RB_2D_UNKNOWN_8C01, 0);
     reg(stream, REG_A6XX_RB_2D_BLIT_CNTL, blit);
@@ -2769,10 +2784,11 @@ bool encodeBlit(pm4::Stream& stream, const Texture& src, uint32_t srcLevel, Blit
     return true;
 }
 
-void encodeBytes(pm4::Stream& stream, uint64_t from, uint64_t to, uint64_t length, uint64_t table, uint8_t* tableCpu, const Options& o) {
+void encodeBytes(pm4::Stream& stream, uint64_t from, uint64_t to, uint64_t length, uint64_t table, uint8_t* tableCpu,
+                 const Options& o, const a6xx::DeviceProfile& profile) {
     constexpr uint32_t kRow = 0x4000;   // the widest row: GRAS_2D_*'s 14-bit x, and the size turnip keeps x + width under
     tableStart(tableCpu);
-    passStart(stream, kRow, 1, table, o);
+    passStart(stream, kRow, 1, table, o, profile);
     const uint32_t blit = rb2dBlitCntlCopy(FMT6_8_UNORM, R2D_UNORM8);
     reg(stream, REG_A6XX_RB_2D_UNKNOWN_8C01, 0);
     reg(stream, REG_A6XX_RB_2D_BLIT_CNTL, blit);
@@ -2867,8 +2883,26 @@ bool appendDeduped(pm4::Stream& to, const pm4::Stream& from, CommandBuffer::RegS
     return forgot;
 }
 
+static bool a660ProbeSurface(const Texture& texture) {
+    return texture.format() == PixelFormat::kRGBA8Unorm && texture.type() == TextureType::k2D &&
+           texture.samples() == 1 && !texture.compressed();
+}
+
 bool CommandBuffer::draw(const Program& program, const RenderPass& pass, const Draw& d, const Bindings& vsBindings, const Bindings& fsBindings,
                          const render::Options& options) {
+    Gpu& gpu = queue_.gpu();
+    if (!gpu.canDraw()) return fail("draw needs verified GPU command tables");
+    if (!gpu.usesVerifiedCommandTables() && !gpu.usesA660CompositorProbe()) {
+        if (pass.color0 == nullptr || !a660ProbeSurface(*pass.color0) || pass.level != 0 || pass.slice != 0 ||
+            pass.depth != nullptr || pass.stencil != nullptr || d.primitive != Primitive::kTriangle ||
+            d.vertexStart != 0 || d.vertexCount != 3 || d.instanceCount != 1 || d.indexBuffer != nullptr ||
+            d.indirect != nullptr || d.visibility != nullptr) {
+            return fail("A660 draw probe needs one non-indexed triangle and a linear RGBA8 color target");
+        }
+        for (const auto& attachment : pass.more) {
+            if (attachment.texture != nullptr) return fail("A660 draw probe takes one color target");
+        }
+    }
     if (status_ > kEnqueued) {
         return fail("draw after commit");
     }
@@ -2954,7 +2988,7 @@ bool CommandBuffer::draw(const Program& program, const RenderPass& pass, const D
     // GMEM is decided as a pass opens, before its first draw is encoded (a draw in a tile is encoded for the tile:
     // encodeInPass). A draw a tile cannot replay ends a GMEM pass and opens a sysmem one of its own.
     std::string gmemWhy;
-    const bool tileable = options.gmem && gmem_ && render::gmemDrawOk(program, pass, d, *vsb, *fsb, &gmemWhy);
+    const bool tileable = gpu.canUseGmem() && options.gmem && gmem_ && render::gmemDrawOk(program, pass, d, *vsb, *fsb, &gmemWhy);
     // (a draw into an attachment the pass's like did not touch, which has no bin: the tiles end before it, as before a
     // draw they cannot replay, and the pass goes on in a pass of its own planned anew; its like's next time has a bin
     // for it -- closePass notes it as touched)
@@ -2989,7 +3023,7 @@ bool CommandBuffer::draw(const Program& program, const RenderPass& pass, const D
         dual = open_->dual;
         plan = open_->plan;
     } else if (options.gmem && gmem_) {
-        gmem = render::gmemPlan(pass, &plan, &gmemWhy_) && tileable;
+        gmem = render::gmemPlan(pass, &plan, &gmemWhy_, ~0u, *queue_.gpu().profile()) && tileable;
         if (!tileable) gmemWhy_ = gmemWhy;
         if (gmem && gmemMinDraws_ != 0) {
             // Both ways, unless this pass's like has had few draws for a while: then it is sysmem and recorded only so
@@ -3037,7 +3071,7 @@ bool CommandBuffer::draw(const Program& program, const RenderPass& pass, const D
             likely |= needs;
             render::GmemPlan narrow;
             std::string unused;
-            if ((attached & ~likely) != 0 && render::gmemPlan(pass, &narrow, &unused, likely)) plan = narrow;
+            if ((attached & ~likely) != 0 && render::gmemPlan(pass, &narrow, &unused, likely, *queue_.gpu().profile())) plan = narrow;
         }
     }
     Piece passTable;
@@ -3058,8 +3092,9 @@ bool CommandBuffer::draw(const Program& program, const RenderPass& pass, const D
                 if (t != nullptr && la == LoadAction::kClear && render::gmemClearWords(t->info(), cc, gmemClearWords_[i])) gmemClears_ |= 1u << i;
             }
         }
-        if (!render::encodeBegin(head, pass, passTable.gpuAddress(), passTable.contents(), &why, options, gmemClears_) ||
-            (dual && !render::encodeBegin(headSys, pass, passTable.gpuAddress(), passTable.contents(), &why, options))) {
+        if (!render::encodeBegin(head, pass, passTable.gpuAddress(), passTable.contents(), &why, options, gmemClears_, *gpu.profile()) ||
+            (dual && !render::encodeBegin(headSys, pass, passTable.gpuAddress(), passTable.contents(),
+                                          &why, options, 0, *gpu.profile()))) {
             gmemClears_ = 0;
             return refuseWork(why);
         }
@@ -3270,6 +3305,13 @@ bool CommandBuffer::freshen(const Bindings& b, const render::Options& options) {
 
 bool CommandBuffer::blitInto(const Texture& src, uint32_t srcLevel, render::BlitRect s, const Texture& dst, uint32_t dstLevel, render::BlitRect d, bool linear,
                              const render::Options& options) {
+    Gpu& gpu = queue_.gpu();
+    if (!gpu.canClearAndBlit()) return fail("texture blit needs verified GPU command tables");
+    if (!gpu.usesVerifiedCommandTables() && !gpu.usesA660CompositorProbe() &&
+        (!a660ProbeSurface(src) || !a660ProbeSurface(dst) || srcLevel != 0 || dstLevel != 0 ||
+         s.w != d.w || s.h != d.h || linear || options.rotate2d != 0 || &src == &dst)) {
+        return fail("A660 blit probe requires separate single-sample linear RGBA8 textures and an unscaled level 0 copy");
+    }
     if (status_ > kEnqueued) {
         return fail("blit after commit");
     }
@@ -3303,7 +3345,7 @@ bool CommandBuffer::blitInto(const Texture& src, uint32_t srcLevel, render::Blit
         return fail(std::string("no memory for the copy's table: ") + why);
     }
     pm4::Stream added;
-    if (!render::encodeBlit(added, src, srcLevel, s, dst, dstLevel, d, linear, table.gpuAddress(), table.contents(), &why, options)) {
+    if (!render::encodeBlit(added, src, srcLevel, s, dst, dstLevel, d, linear, table.gpuAddress(), table.contents(), &why, options, *gpu.profile())) {
         return refuseWork(why);
     }
     counts_.copies++;
@@ -3318,6 +3360,9 @@ bool CommandBuffer::blitInto(const Texture& src, uint32_t srcLevel, render::Blit
 }
 
 bool CommandBuffer::generateMipmaps(const Texture& t, const render::Options& options) {
+    if (!queue_.gpu().usesVerifiedCommandTables() && !queue_.gpu().usesA660CompositorProbe()) {
+        return fail("mipmaps need verified GPU command tables");
+    }
     // an array's or a cube's levels are every layer's: level by level, slice by slice, each (level, slice) the one-level
     // 2D view of it -- the blit addresses a level of slice 0 only
     const bool layered = t.type() == TextureType::k2DArray || t.type() == TextureType::kCube || t.type() == TextureType::kCubeArray;
@@ -3531,6 +3576,18 @@ void CommandBuffer::retirePass() {
 }
 
 bool CommandBuffer::clear(const RenderPass& pass, const render::Options& options) {
+    Gpu& gpu = queue_.gpu();
+    if (!gpu.canClearAndBlit()) return fail("clear needs verified GPU command tables");
+    if (!gpu.usesVerifiedCommandTables() && !gpu.usesA660CompositorProbe()) {
+        if (pass.color0 == nullptr || !a660ProbeSurface(*pass.color0) ||
+            pass.level != 0 || pass.slice != 0 || pass.load != LoadAction::kClear ||
+            pass.depth != nullptr || pass.stencil != nullptr) {
+            return fail("A660 clear probe requires a single-sample linear RGBA8 color target");
+        }
+        for (const auto& attachment : pass.more) {
+            if (attachment.texture != nullptr) return fail("A660 clear probe takes one color target");
+        }
+    }
     if (status_ > kEnqueued) {
         return fail("clear after commit");
     }
@@ -3541,7 +3598,7 @@ bool CommandBuffer::clear(const RenderPass& pass, const render::Options& options
         return fail(std::string("no memory for the pass's table: ") + why);
     }
     pm4::Stream added;
-    if (!render::encodeClear(added, pass, table.gpuAddress(), table.contents(), &why, options)) {
+    if (!render::encodeClear(added, pass, table.gpuAddress(), table.contents(), &why, options, *gpu.profile())) {
         return refuseWork(why);
     }
     counts_.clears++;

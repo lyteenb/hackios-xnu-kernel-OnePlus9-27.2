@@ -9,7 +9,7 @@
 | GPU | Adreno 660, chip-id `0x06060001`, 1536 KiB GMEM |
 | Touch | Samsung S6SY792, I2C address `0x48` |
 | UEFI | `SILICIUM_UEFI.fd`, base `0x9FD00000`, size `0x200000`, boot header v3 |
-| State | Darwin 27.2 RAM boot reached SpringBoard; touch and CPU-frequency profile verified |
+| State | Darwin 27.2 RAM boot reaches SpringBoard with the experimental A660 profile |
 
 ## State
 
@@ -18,10 +18,7 @@ values are derived from the phone's Android device tree and the earlier OnePlus 
 bring-up. Darwin 27.2 has since been booted from RAM on the phone, with SpringBoard, S6SY792 touch
 and an EPSS CPU-frequency profile observed.
 
-The GPU kernel path starts, but A660 Metal user space is not complete. The 27.2 HakiosMetal tables
-are A635-only, so CoreAnimation currently falls back to software rendering. See
-[`docs/STATUS.md`](../../../../../docs/STATUS.md) and
-[`docs/LIMITATIONS.md`](../../../../../docs/LIMITATIONS.md).
+A660 uses the experimental linear sysmem path. The board also describes the three PMIC keys and BQ28Z610 gauge. For the current evidence and acceptance scope, see [status](../../../../../docs/STATUS.md).
 
 ## Hardware data present
 
@@ -33,15 +30,15 @@ are A635-only, so CoreAnimation currently falls back to software rendering. See
 
 ## Known gaps
 
-- Remaining A660 Metal tables and user-space rendering paths.
-- QCA6490 Wi-Fi, Bluetooth, ADSP, audio, camera, battery, buttons and sensors.
+- GMEM coverage, additional render paths and sustained A660 UI validation.
+- QCA6490 Wi-Fi, Bluetooth, ADSP, audio, camera, charging and sensors.
 - UFS persistence, thermal control and long-run stability.
 - The UEFI firmware and the phone's Android device tree are private inputs and are not committed
   here.
 
 ## Build
 
-The public workflow builds only the kernel and a generic loader:
+Build the kernel and generic loader in a prepared build environment.
 
 ```sh
 python3 tools/boards.py check
@@ -49,5 +46,4 @@ BUILD_CONFIG=build.config.arm64.llvm kernel/build.sh -j4
 arch/arm64/boot/build.sh
 ```
 
-The workflow must not upload Apple system files, IPSW contents, the phone's firmware, its device
-identity or private logs.
+For a device-bound loader and the offline A660 package, follow [the reproduction steps](../../../../../docs/REPRODUCE.md).

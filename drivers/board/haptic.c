@@ -911,15 +911,56 @@ haptic_thread(__unused void *parameter, __unused wait_result_t result)
 	thread_terminate(current_thread());
 }
 
+/*
+ * OnePlus's AW8697 driver reads its byte ID from register 0x00.
+ * Keep this diagnostic separate from the AW86927 configuration and playback.
+ */
+static void
+aw8697_probe_thread(__unused void *parameter, __unused wait_result_t result)
+{
+	uint32_t reset_cfg = 0, reset_io = 0;
+	uint8_t id = 0;
+
+	tlmm = ml_io_map(TLMM_PHYS, TLMM_SIZE);
+	show_pins();
+	if (level == 2) {
+		reset_cfg = rd(GPIO_CFG(PIN_RESET));
+		reset_io = rd(GPIO_IO(PIN_RESET));
+		reset_pin(false);
+		wait_ms(5);
+		reset_pin(true);
+		wait_ms(8);
+	}
+	if (regs_read(0x00, &id, 1)) {
+		say("haptic: AW8697 ID at %#x = 0x%02x (%s)\n", AW_ADDRESS, id, id == 0x97 ? "match" : "unexpected");
+	} else {
+		say("haptic: AW8697 ID did not answer at %#x on gpio%u/%u\n", AW_ADDRESS, PIN_SDA, PIN_SCL);
+	}
+	if (level == 2) {
+		wr(GPIO_IO(PIN_RESET), reset_io & 2);
+		wr(GPIO_CFG(PIN_RESET), reset_cfg);
+		released = false;
+		say("haptic: AW8697 probe restored the reset pin\n");
+	}
+	thread_terminate(current_thread());
+}
+
 void
 hakios_haptic_init(void)
 {
 	thread_t thread;
+	bool aw8697_probe;
 
 	if (!PE_parse_boot_argn("haptic", &level, sizeof(level)) || level == 0) {
 		return;
 	}
-	if (!hakios_board_has(HAKIOS_HAS_HAPTIC_AW86927)) {
+	aw8697_probe = hakios_board() != NULL && hakios_board()->haptic.aw8697_probe;
+	if (aw8697_probe && level > 2) {
+		say("haptic: the AW8697 currently supports only the ID probe (haptic=1 or 2)\n");
+		level = 0;
+		return;
+	}
+	if (!aw8697_probe && !hakios_board_has(HAKIOS_HAS_HAPTIC_AW86927)) {
 		/* every address below is one phone's: not on a board that does not say it is wired the same */
 		say("haptic: disabled: this board's board.dts lists no \"haptic-aw86927\"\n");
 		level = 0;
@@ -940,11 +981,12 @@ hakios_haptic_init(void)
 	if (level > 5) {
 		level = 5;
 	}
-	if (PE_parse_boot_argn("haptic_tap_gain", &tap_gain, sizeof(tap_gain)) && tap_gain > android_regs[AW_PLAYCFG2]) {
+	if (!aw8697_probe && PE_parse_boot_argn("haptic_tap_gain", &tap_gain, sizeof(tap_gain)) &&
+	    tap_gain > android_regs[AW_PLAYCFG2]) {
 		say("haptic: haptic_tap_gain=%#x is above Android's gain: 0x%02x\n", tap_gain, android_regs[AW_PLAYCFG2]);
 		tap_gain = android_regs[AW_PLAYCFG2];
 	}
-	if (kernel_thread_start(haptic_thread, NULL, &thread) == KERN_SUCCESS) {
+	if (kernel_thread_start(aw8697_probe ? aw8697_probe_thread : haptic_thread, NULL, &thread) == KERN_SUCCESS) {
 		thread_deallocate(thread);
 	}
 }

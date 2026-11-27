@@ -2,6 +2,7 @@
 # Our libraries for iOS 26/27, arm64e, into $OBJ (darwin/userland/env.sh): the ones the kernel inserts into
 # a few processes (etc/inject.conf of the small image), and the audio server's output device.
 # BUILD: the iOS build they are for (23G90 = 26.6.2, 24B119 = 27.2); default: the unpacked IPSW's.
+# SPRINGBOARD_ONLY=1 builds and signs libhakios-sb.dylib alone.
 set -e
 RN=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck source=env.sh
@@ -37,11 +38,21 @@ esac
 [ -z "$SB_SNAPSHOT_FORMAT" ] || sed_inplace -e "s/0x1f1c91480UL/${SB_SNAPSHOT_FORMAT}UL/" "$O/src/inject_sb.c"
 [ -z "$SB_LONG_PRESS" ] || sed_inplace -e "s/0x1c4f6ab44UL/${SB_LONG_PRESS}UL/" "$O/src/inject_sb.c"
 [ -z "$SB_POSTER" ] || sed_inplace -e "s/0x1c507e0fcUL/${SB_POSTER}UL/" -e 's/"SBMainDisplayPolicyAggregator"/"SBPolicyAggregator"/' "$O/src/inject_sb.c"
-$DYN -dynamiclib -install_name /hakios/lib/libhakios.dylib -framework CoreFoundation -framework IOKit -lobjc -o "$O/libhakios.dylib" "$O/src/inject.c"
 # the status bar's clock past the hole punch: components/statusbar/inject_statusbar.c (16.5's statusbar.c checks 16.5's addresses)
 # (what it knows of each board, user_boards.h, is made from the device packages that are there now)
 "$RN/../tools/boards.py" gen --out "$O/boards" > /dev/null
 $DYN "${SB_DEFS[@]}" -DHAKIOS_POSTER_SWITCHER=1 -dynamiclib -install_name /hakios/lib/libhakios-sb.dylib -framework CoreFoundation -framework IOKit -lobjc -o "$O/libhakios-sb.dylib" "$O/src/inject_sb.c" -I"$O/boards" "$RN/../components/statusbar/inject_statusbar.c"
+strip_and_sign() {
+	local library=$1
+	pac_strip "$library"
+	"$LDID" -S "$library"
+	echo "  $(basename "$library"): $(file -b "$library" | cut -c1-60)"
+}
+if [ "${SPRINGBOARD_ONLY:-0}" = 1 ]; then
+	strip_and_sign "$O/libhakios-sb.dylib"
+	exit 0
+fi
+$DYN -dynamiclib -install_name /hakios/lib/libhakios.dylib -framework CoreFoundation -framework IOKit -lobjc -o "$O/libhakios.dylib" "$O/src/inject.c"
 # Camera.app's preview given a size where AVFoundation leaves it none (components/camera/src/inject_camera_app.c)
 $DYN -dynamiclib -install_name /hakios/lib/libhakios-camapp.dylib -lobjc -o "$O/libhakios-camapp.dylib" "$RN/../components/camera/src/inject_camera_app.c"
 # (libhakios-statusbar.dylib, in every application, also names an uncaught exception on the console: darwin/userland/uncaught.c)
@@ -85,7 +96,5 @@ $DYN -dynamiclib -install_name /hakios/lib/liblocationd-silo.dylib -lobjc -o "$O
 # the brightness slider and Auto-Brightness to the kernel's hw.backlight (any device: components/brightness/inject_brightness.c)
 $DYN -dynamiclib -install_name /hakios/lib/libhakios-brightness.dylib -framework CoreFoundation -lobjc -o "$O/libhakios-brightness.dylib" "$RN/../components/brightness/inject_brightness.c"
 for f in "$O"/*.dylib "$O/HakiosAudio"; do
-	pac_strip "$f"
-	"$LDID" -S "$f"
-	echo "  $(basename "$f"): $(file -b "$f" | cut -c1-60)"
+	strip_and_sign "$f"
 done

@@ -66,6 +66,7 @@
 #include "../tests/fixtures/tri_cflat_fs_air.hpp"
 #include "../tests/fixtures/tri_attr_vs_air.hpp"
 #include "../tests/fixtures/tri_tex_fs_air.hpp"
+#include "../tests/fixtures/tri_tex_fs_bc.hpp"
 #include "../tests/fixtures/tri_null_fs_air.hpp"
 #include "../tests/fixtures/tri_mrt_fs_air.hpp"
 #include "../tests/fixtures/tri_fb_fs_air.hpp"
@@ -373,7 +374,452 @@ static const char* dimName(uint8_t dim) {
     return dim == kTexDim1D ? "1D" : dim == kTexDim2D ? "2D" : dim == kTexDim3D ? "3D" : dim == kTexDimCube ? "cube" : "undeclared";
 }
 
+static int a660MemorySmoke(Gpu& gpu) {
+    if (gpu.chipId() != a6xx::kA660Profile.chipId) {
+        std::printf("A660-SMOKE FAIL chip=%#x (expected 0x06060001)\n", gpu.chipId());
+        return 1;
+    }
+
+    uint64_t gmem = 0, bank = 0, faults = 0;
+    if (gpu.param(kParamGmemSize, &gmem) || gpu.param(kParamHighestBankBit, &bank) ||
+        gpu.param(kParamFaults, &faults) || gmem != a6xx::kA660Profile.gmemBytes ||
+        bank != a6xx::kA660Profile.highestBankBit) {
+        std::printf("A660-SMOKE FAIL parameters: GMEM=%llu bank=%llu faults=%llu\n",
+                    (unsigned long long)gmem, (unsigned long long)bank, (unsigned long long)faults);
+        return 1;
+    }
+    std::printf("A660-SMOKE chip=0x06060001 GMEM=%llu bank=%llu faults=%llu\n",
+                (unsigned long long)gmem, (unsigned long long)bank, (unsigned long long)faults);
+    std::fflush(stdout);
+
+    std::string why;
+    auto queue = CommandQueue::make(gpu, &why);
+    auto src = newBuffer(gpu, 16, &why);
+    auto dst = newBuffer(gpu, 16, &why);
+    if (!queue || !src || !dst) {
+        std::printf("A660-SMOKE FAIL allocate: %s\n", why.c_str());
+        return 1;
+    }
+
+    constexpr uint32_t word = 0xa5a5a5a5u;
+    const uint32_t expected[4] = {0, word, 0, 0};
+    memset(src->contents(), 0, sizeof(expected));
+    memset(dst->contents(), 0, sizeof(expected));
+    auto check = [&](const char* name, const std::shared_ptr<CommandBuffer>& cb, bool recorded, const Buffer& buffer) {
+        if (!recorded) {
+            std::printf("A660-SMOKE FAIL %s record: %s\n", name, cb->error().c_str());
+            return false;
+        }
+        cb->commit();
+        cb->waitUntilCompleted();
+        uint64_t after = 0;
+        const bool ok = cb->status() == CommandBuffer::kCompleted &&
+                        memcmp(buffer.contents(), expected, sizeof(expected)) == 0 &&
+                        gpu.param(kParamFaults, &after) == 0 && after == faults;
+        std::printf("A660-SMOKE %s %s (fence %s, faults=%llu; %s)\n",
+                    ok ? "PASS" : "FAIL", name, cb->status() == CommandBuffer::kCompleted ? "complete" : "failed",
+                    (unsigned long long)after, cb->error().c_str());
+        std::fflush(stdout);
+        return ok;
+    };
+
+    auto fill = queue->commandBuffer();
+    if (!check("CP_MEM_WRITE", fill, fill->fill(*src, 4, 4, 0xa5), *src)) return 1;
+    auto copy = queue->commandBuffer();
+    if (!check("CP_MEMCPY", copy, copy->copy(*src, 4, *dst, 4, 4), *dst)) return 1;
+    std::puts("A660-SMOKE PASS all");
+    return 0;
+}
+
+static int a660ComputeSmoke(Gpu& gpu) {
+    std::string why;
+    auto queue = CommandQueue::make(gpu, &why);
+    if (!queue) {
+        std::printf("A660-COMPUTE FAIL queue: %s\n", why.c_str());
+        return 1;
+    }
+    uint64_t faults = 0;
+    if (gpu.param(kParamFaults, &faults) != 0) {
+        std::puts("A660-COMPUTE FAIL could not read fault counter");
+        return 1;
+    }
+    const uint32_t groups[3] = {1, 1, 1};
+    compute::Options options;
+    options.tail = false;  // The kernel's submission fence completes the probe.
+    auto submit = [&](const char* stage, const Kernel& kernel, const std::vector<Binding>& buffers) {
+        auto cb = queue->commandBuffer();
+        if (!cb->dispatch(kernel, groups, nullptr, buffers, nullptr, options)) {
+            std::printf("A660-COMPUTE FAIL %s record: %s\n", stage, cb->error().c_str());
+            return false;
+        }
+        cb->commit();
+        cb->waitUntilCompleted();
+        uint64_t after = 0;
+        const bool readFaults = gpu.param(kParamFaults, &after) == 0;
+        const bool complete = cb->status() == CommandBuffer::kCompleted && readFaults && after == faults;
+        std::printf("A660-COMPUTE %s %s fence=%s faults=%llu (%s)\n",
+                    complete ? "PASS" : "FAIL", stage, cb->status() == CommandBuffer::kCompleted ? "complete" : "failed",
+                    (unsigned long long)after, cb->error().c_str());
+        std::fflush(stdout);
+        return complete;
+    };
+    if (!submit("end_only", kernels::end_only, {})) return 1;
+
+    constexpr uint32_t written = 64, capacity = 1024, c = 0x1234;
+    const uint32_t canary = canaryFor(written, c);
+    auto out = newBuffer(gpu, capacity * sizeof(uint32_t), &why);
+    if (!out) {
+        std::printf("A660-COMPUTE FAIL output buffer: %s\n", why.c_str());
+        return 1;
+    }
+    auto checkOutput = [&](const char* stage, const Kernel& kernel, const std::vector<Binding>& buffers) {
+        std::fill_n(static_cast<uint32_t*>(out->contents()), capacity, canary);
+        if (!submit(stage, kernel, buffers)) return false;
+        const auto result = readBack(*out, written, c, canary);
+        const bool ok = result.right == written && result.beyondCanary == capacity - written;
+        std::printf("A660-COMPUTE %s %s readback=%u/%u canary=%u/%u\n",
+                    ok ? "PASS" : "FAIL", stage, result.right, written, result.beyondCanary, capacity - written);
+        std::fflush(stdout);
+        return ok;
+    };
+    if (!checkOutput("fill_id", kernels::fill_id, {Binding{out.get(), 0}})) return 1;
+
+    auto compiled = compileAir(kernels::fill_id_bc, kernels::fill_id_bc_size, &why, {}, gpu.chipId());
+    auto constants = newBuffer(gpu, 64, &why);
+    if (!compiled || !constants) {
+        std::printf("A660-COMPUTE FAIL A660 AIR compiler or constant buffer: %s\n", why.c_str());
+        return 1;
+    }
+    auto& kernel = compiled->kernel;
+    kernel.localSize[0] = written;
+    kernel.localSize[1] = 1;
+    kernel.localSize[2] = 1;
+    memset(constants->contents(), 0, 64);
+    *static_cast<uint32_t*>(constants->contents()) = c;
+    if (!checkOutput("A660 AIR fill_id", kernel, {Binding{out.get(), 0}, Binding{constants.get(), 0}})) return 1;
+    std::puts("A660-COMPUTE PASS all");
+    return 0;
+}
+
+static int a660BlitSmoke(Gpu& gpu) {
+    constexpr uint32_t width = 16, height = 16, stride = width * sizeof(uint32_t);
+    constexpr uint32_t red = 0xff0000ff, background = 0x11223344;
+    std::string why;
+    TextureDesc desc;
+    desc.format = PixelFormat::kRGBA8Unorm;
+    desc.width = width;
+    desc.height = height;
+    desc.usage = kTextureUsageRenderTarget | kTextureUsageRead;
+    auto queue = CommandQueue::make(gpu, &why);
+    auto src = Texture::make(gpu, desc, &why);
+    auto dst = Texture::make(gpu, desc, &why);
+    uint64_t faults = 0;
+    if (!queue || !src || !dst || gpu.param(kParamFaults, &faults) != 0) {
+        std::printf("A660-BLIT FAIL resource setup: %s\n", why.c_str());
+        return 1;
+    }
+    auto submit = [&](const char* stage, const std::shared_ptr<CommandBuffer>& cb, bool recorded) {
+        if (recorded) {
+            cb->commit();
+            cb->waitUntilCompleted();
+        }
+        uint64_t after = 0;
+        const bool readFaults = gpu.param(kParamFaults, &after) == 0;
+        const bool complete = recorded && cb->status() == CommandBuffer::kCompleted && readFaults && after == faults;
+        std::printf("A660-BLIT %s %s fence=%s faults=%llu (%s)\n", complete ? "PASS" : "FAIL", stage,
+                    complete ? "complete" : "failed", (unsigned long long)after, cb->error().c_str());
+        std::fflush(stdout);
+        return complete;
+    };
+
+    RenderPass pass;
+    pass.color0 = src.get();
+    pass.load = LoadAction::kClear;
+    pass.clearColor[0] = 1;
+    pass.clearColor[3] = 1;
+    auto clear = queue->commandBuffer();
+    if (!submit("clear", clear, clear->clear(pass))) return 1;
+    std::vector<uint32_t> pixels(width * height);
+    if (!src->read(0, 0, width, height, pixels.data(), stride, &why)) {
+        std::printf("A660-BLIT FAIL clear read: %s\n", why.c_str());
+        return 1;
+    }
+    const auto cleared = std::count(pixels.begin(), pixels.end(), red);
+    std::printf("A660-BLIT %s clear pixels=%zu/%zu first=%#x\n",
+                size_t(cleared) == pixels.size() ? "PASS" : "FAIL", size_t(cleared), pixels.size(), pixels.front());
+    if (size_t(cleared) != pixels.size()) return 1;
+
+    std::vector<uint32_t> input(width * height), canary(width * height, background);
+    for (uint32_t y = 0; y < height; ++y) {
+        for (uint32_t x = 0; x < width; ++x) input[y * width + x] = 0xff000000u | (y << 8) | x;
+    }
+    if (!src->replace(0, 0, width, height, input.data(), stride, &why) ||
+        !dst->replace(0, 0, width, height, canary.data(), stride, &why)) {
+        std::printf("A660-BLIT FAIL prepare blit: %s\n", why.c_str());
+        return 1;
+    }
+    const render::BlitRect from{2, 3, 8, 6}, to{5, 7, 8, 6};
+    auto blit = queue->commandBuffer();
+    if (!submit("copy", blit, blit->blit(*src, 0, from, *dst, 0, to, false))) return 1;
+    if (!dst->read(0, 0, width, height, pixels.data(), stride, &why)) {
+        std::printf("A660-BLIT FAIL copy read: %s\n", why.c_str());
+        return 1;
+    }
+    uint32_t copied = 0, untouched = 0;
+    for (uint32_t y = 0; y < height; ++y) {
+        for (uint32_t x = 0; x < width; ++x) {
+            const uint32_t pixel = pixels[y * width + x];
+            if (x >= to.x && x - to.x < to.w && y >= to.y && y - to.y < to.h) {
+                copied += pixel == input[(y - to.y + from.y) * width + x - to.x + from.x];
+            } else {
+                untouched += pixel == background;
+            }
+        }
+    }
+    const uint32_t area = to.w * to.h;
+    const bool ok = copied == area && untouched == width * height - area;
+    std::printf("A660-BLIT %s copy pixels=%u/%u untouched=%u/%u\n",
+                ok ? "PASS" : "FAIL", copied, area, untouched, width * height - area);
+    if (ok) std::puts("A660-BLIT PASS all");
+    return ok ? 0 : 1;
+}
+
+static int a660DrawSmoke(Gpu& gpu, bool compareGmem = false, bool binGmem = false) {
+    // The large target exceeds the A660's usable GMEM and needs multiple tiles.
+    const uint32_t width = compareGmem ? 672 : 64, height = width, stride = width * sizeof(uint32_t);
+    constexpr uint32_t color = 0xff804020, canary = 0x31415161;
+    std::string why;
+    std::shared_ptr<CompiledStage> vs = compileStage(kernels::tri_flat_vs_bc, kernels::tri_flat_vs_bc_size,
+                                                      &why, {}, 0, nullptr, gpu.chipId());
+    if (!vs) {
+        std::printf("A660-DRAW FAIL vertex compilation: %s\n", why.c_str());
+        return 1;
+    }
+    std::shared_ptr<CompiledStage> fs = compileStage(kernels::tri_flat_fs_bc, kernels::tri_flat_fs_bc_size,
+                                                      &why, {}, 0, nullptr, gpu.chipId());
+    if (!fs) {
+        std::printf("A660-DRAW FAIL fragment compilation: %s\n", why.c_str());
+        return 1;
+    }
+    auto program = linkProgram(std::move(vs), std::move(fs), PixelFormat::kRGBA8Unorm, &why);
+    if (!program) {
+        std::printf("A660-DRAW FAIL program link: %s\n", why.c_str());
+        return 1;
+    }
+
+    auto queue = CommandQueue::make(gpu, &why);
+    TextureDesc desc;
+    desc.format = PixelFormat::kRGBA8Unorm;
+    desc.width = width;
+    desc.height = height;
+    desc.usage = kTextureUsageRenderTarget | kTextureUsageRead;
+    auto target = Texture::make(gpu, desc, &why);
+    const std::vector<uint32_t> initial(width * height, canary);
+    std::vector<uint32_t> pixels(width * height);
+    uint64_t before = 0, after = 0;
+    if (!queue || !target || gpu.param(kParamFaults, &before) != 0) {
+        std::printf("A660-DRAW FAIL resource setup: %s\n", why.c_str());
+        return 1;
+    }
+    RenderPass pass;
+    pass.color0 = target.get();
+    Draw draw;
+    draw.vertexCount = 3;
+    draw.viewport = Viewport{0, 0, float(width), float(height), 0, 1};
+    auto drawFrame = [&](bool tiled, std::vector<uint32_t>& result) {
+        const char* label = tiled ? (binGmem ? "A660-GMEM-BIN" : "A660-GMEM") : "A660-DRAW";
+        if (!target->replace(0, 0, width, height, initial.data(), stride, &why)) {
+            std::printf("%s FAIL initialize: %s\n", label, why.c_str());
+            return false;
+        }
+        render::Options options;
+        options.gmem = tiled;
+        options.gmemBinning = tiled && binGmem;
+        auto cb = queue->commandBuffer();
+        cb->setGmem(tiled);
+        if (!cb->draw(program->program, pass, draw, Bindings{}, Bindings{}, options)) {
+            std::printf("%s FAIL recording: %s\n", label, cb->error().c_str());
+            return false;
+        }
+        cb->commit();
+        cb->waitUntilCompleted();
+        if (cb->status() != CommandBuffer::kCompleted || gpu.param(kParamFaults, &after) != 0 || after != before) {
+            std::printf("%s FAIL fence faults=%llu (%s)\n", label, (unsigned long long)after, cb->error().c_str());
+            return false;
+        }
+        const auto counts = cb->counts();
+        if (counts.gmemPasses != (tiled ? 1u : 0u) || counts.binnedPasses != (tiled && binGmem ? 1u : 0u) ||
+            (tiled && counts.tiles < 2)) {
+            std::printf("%s FAIL path GMEM passes=%u tiles=%u binned=%u\n",
+                        label, counts.gmemPasses, counts.tiles, counts.binnedPasses);
+            return false;
+        }
+        if (!target->read(0, 0, width, height, result.data(), stride, &why)) {
+            std::printf("%s FAIL read: %s\n", label, why.c_str());
+            return false;
+        }
+        if (tiled) {
+            std::printf("%s fence=complete faults=%llu tiles=%u binned=%u\n",
+                        label, (unsigned long long)after, counts.tiles, counts.binnedPasses);
+        }
+        return true;
+    };
+    if (!drawFrame(false, pixels)) return 1;
+    uint32_t inside = 0, outside = 0, edge = 0, invalidEdge = 0;
+    for (uint32_t y = 0; y < height; ++y) {
+        for (uint32_t x = 0; x < width; ++x) {
+            const uint32_t pixel = pixels[y * width + x];
+            if (y > x) inside += pixel == color;
+            else if (y < x) outside += pixel == canary;
+            else if (pixel == color) ++edge;
+            else if (pixel != canary) ++invalidEdge;
+        }
+    }
+    const uint32_t half = width * (width - 1) / 2;
+    const bool ok = inside == half && outside == half && invalidEdge == 0 && (edge == 0 || edge == width);
+    std::printf("A660-DRAW %s inside=%u/%u outside=%u/%u edge=%u invalid=%u fence=complete faults=%llu\n",
+                ok ? "PASS" : "FAIL", inside, half, outside, half, edge, invalidEdge, (unsigned long long)after);
+    if (!ok) return 1;
+    std::puts("A660-DRAW PASS all");
+    if (!compareGmem) return 0;
+
+    std::vector<uint32_t> tiled(width * height);
+    if (!drawFrame(true, tiled)) return 1;
+    size_t different = 0;
+    for (size_t i = 0; i < pixels.size(); ++i) {
+        different += pixels[i] != tiled[i];
+    }
+    std::printf("%s %s matches sysmem=%zu/%zu\n", binGmem ? "A660-GMEM-BIN" : "A660-GMEM",
+                different == 0 ? "PASS" : "FAIL", pixels.size() - different, pixels.size());
+    return different != 0;
+}
+
+static int a660MaskSmoke(Gpu& gpu) {
+    // Match the size of the A8 title mask from the CoreAnimation trace.
+    constexpr uint32_t maskWidth = 288, maskHeight = 83, width = 64, height = 64;
+    constexpr uint32_t stride = width * sizeof(uint32_t), background = 0xffcc9966u;
+    std::string why;
+    auto vs = compileStage(kernels::tri_color_vs_bc, kernels::tri_color_vs_bc_size,
+                           &why, {}, 0, nullptr, gpu.chipId());
+    if (!vs) {
+        std::printf("A660-MASK FAIL vertex compilation: %s\n", why.c_str());
+        return 1;
+    }
+    auto fs = compileStage(kernels::tri_tex_fs_bc, kernels::tri_tex_fs_bc_size,
+                           &why, {}, 0, nullptr, gpu.chipId());
+    if (!fs) {
+        std::printf("A660-MASK FAIL fragment compilation: %s\n", why.c_str());
+        return 1;
+    }
+    auto program = linkProgram(std::move(vs), std::move(fs), PixelFormat::kBGRA8Unorm, &why);
+    if (!program) {
+        std::printf("A660-MASK FAIL program link: %s\n", why.c_str());
+        return 1;
+    }
+    Program blended = program->program;
+    blended.blend.enabled = true;
+    blended.blend.dstRgb = 5;    // OneMinusSourceAlpha
+    blended.blend.dstAlpha = 5;
+
+    TextureDesc desc;
+    desc.format = PixelFormat::kA8Unorm;
+    desc.width = maskWidth;
+    desc.height = maskHeight;
+    desc.usage = kTextureUsageRenderTarget | kTextureUsageRead;
+    auto maskTexture = Texture::make(gpu, desc, &why);
+    desc.format = PixelFormat::kBGRA8Unorm;
+    desc.width = width;
+    desc.height = height;
+    auto target = Texture::make(gpu, desc, &why);
+    auto queue = CommandQueue::make(gpu, &why);
+    Sampler sampler;
+    uint64_t baseline = 0;
+    if (!maskTexture || !target || !queue || !makeSampler(SamplerDesc{}, &sampler, &why) ||
+        gpu.param(kParamFaults, &baseline) != 0) {
+        std::printf("A660-MASK FAIL resource setup: %s\n", why.c_str());
+        return 1;
+    }
+    auto submit = [&](const char* label, unsigned alpha, const std::shared_ptr<CommandBuffer>& cb, bool recorded) {
+        if (recorded) {
+            cb->commit();
+            cb->waitUntilCompleted();
+        }
+        uint64_t faults = 0;
+        const bool ok = recorded && cb->status() == CommandBuffer::kCompleted &&
+            gpu.param(kParamFaults, &faults) == 0 && faults == baseline;
+        if (!ok) std::printf("A660-MASK FAIL %s alpha=%u faults=%llu (%s)\n", label, alpha,
+                             (unsigned long long)faults, cb->error().c_str());
+        return ok;
+    };
+
+    RenderPass maskPass;
+    maskPass.color0 = maskTexture.get();
+    maskPass.load = LoadAction::kClear;
+    RenderPass targetPass;
+    targetPass.color0 = target.get();
+    Draw draw;
+    draw.vertexCount = 6;
+    draw.viewport = Viewport{0, 0, width, height, 0, 1};
+    Bindings bindings;
+    bindings.textures = {maskTexture.get()};
+    bindings.samplers = {&sampler};
+    render::Options options;
+    options.gmem = false;
+    std::vector<uint8_t> maskBytes(maskWidth * maskHeight);
+    std::vector<uint32_t> pixels(width * height), initial(width * height, background);
+    struct Sample { uint8_t alpha; uint32_t expectedBlend; };
+    const Sample samples[] = {{0, background}, {85, 0xff886644u}, {255, 0xff000000u}};
+    for (const auto& sample : samples) {
+        maskPass.clearColor[3] = double(sample.alpha) / 255;
+        auto clear = queue->commandBuffer();
+        if (!submit("clear", sample.alpha, clear, clear->clear(maskPass))) return 1;
+        if (!maskTexture->read(0, 0, maskWidth, maskHeight, maskBytes.data(), maskWidth, &why)) {
+            std::printf("A660-MASK FAIL mask read: %s\n", why.c_str());
+            return 1;
+        }
+        const auto cleared = std::count(maskBytes.begin(), maskBytes.end(), sample.alpha);
+        std::printf("A660-MASK alpha=%u mask=%zu/%zu\n", sample.alpha, size_t(cleared), maskBytes.size());
+        if (size_t(cleared) != maskBytes.size()) return 1;
+
+        const uint32_t expectedSample = uint32_t(sample.alpha) << 24;
+        const Program* programs[] = {&program->program, &blended};
+        const uint32_t expectedPixels[] = {expectedSample, sample.expectedBlend};
+        const char* labels[] = {"sample", "blend"};
+        for (unsigned index = 0; index < 2; ++index) {
+            if (!target->replace(0, 0, width, height, initial.data(), stride, &why)) {
+                std::printf("A660-MASK FAIL BGRA setup: %s\n", why.c_str());
+                return 1;
+            }
+            auto cb = queue->commandBuffer();
+            if (!submit(labels[index], sample.alpha, cb,
+                cb->draw(*programs[index], targetPass, draw, Bindings{}, bindings, options))) return 1;
+            if (!target->read(0, 0, width, height, pixels.data(), stride, &why)) {
+                std::printf("A660-MASK FAIL BGRA read: %s\n", why.c_str());
+                return 1;
+            }
+            const uint32_t expected = expectedPixels[index];
+            const auto correct = std::count(pixels.begin(), pixels.end(), expected);
+            const auto mismatch = std::find_if(pixels.begin(), pixels.end(),
+                                               [expected](uint32_t word) { return word != expected; });
+            std::printf("A660-MASK alpha=%u %s=%zu/%zu expected=%#x first-wrong=%#x\n", sample.alpha,
+                        labels[index], size_t(correct), pixels.size(), expected,
+                        mismatch == pixels.end() ? 0 : *mismatch);
+            if (size_t(correct) != pixels.size()) return 1;
+        }
+    }
+    std::puts("A660-MASK PASS all");
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    Gpu::ProbeMode probeMode = Gpu::ProbeMode::kOff;
+    if (argc == 2 && strcmp(argv[1], "--a660-smoke") == 0) probeMode = Gpu::ProbeMode::kA660Memory;
+    if (argc == 2 && strcmp(argv[1], "--a660-compute-smoke") == 0) probeMode = Gpu::ProbeMode::kA660Compute;
+    if (argc == 2 && strcmp(argv[1], "--a660-blit-smoke") == 0) probeMode = Gpu::ProbeMode::kA660Blit;
+    if (argc == 2 && strcmp(argv[1], "--a660-draw-smoke") == 0) probeMode = Gpu::ProbeMode::kA660Draw;
+    const bool binGmem = argc == 2 && strcmp(argv[1], "--a660-gmem-binned-smoke") == 0;
+    if (binGmem || (argc == 2 && strcmp(argv[1], "--a660-gmem-smoke") == 0)) probeMode = Gpu::ProbeMode::kA660Gmem;
+    if (argc == 2 && strcmp(argv[1], "--a660-mask-smoke") == 0) probeMode = Gpu::ProbeMode::kA660Compositor;
     bool recover = false, bisect = false, binTrace = false;
     compute::Options chosen;   // what the dispatches of stage 5 are encoded with
     std::vector<std::pair<std::string, std::string>> metallibs;   // --metallib FILE FUNCTION: a kernel of the phone's own image
@@ -395,7 +841,17 @@ int main(int argc, char** argv) {
         std::printf("probe: no GPU: %s\n", why.c_str());
         return 100;
     }
-    Gpu gpu(std::move(transport));
+    Gpu gpu(std::move(transport), probeMode);
+    if (probeMode != Gpu::ProbeMode::kOff) {
+        const int status = a660MemorySmoke(gpu);
+        if (status != 0 || probeMode == Gpu::ProbeMode::kA660Memory) return status;
+        if (probeMode == Gpu::ProbeMode::kA660Compute) return a660ComputeSmoke(gpu);
+        if (probeMode == Gpu::ProbeMode::kA660Compositor) return a660MaskSmoke(gpu);
+        if (probeMode == Gpu::ProbeMode::kA660Gmem) return a660DrawSmoke(gpu, true, binGmem);
+        const int blitStatus = a660BlitSmoke(gpu);
+        if (blitStatus != 0 || probeMode == Gpu::ProbeMode::kA660Blit) return blitStatus;
+        return a660DrawSmoke(gpu);
+    }
     uint64_t id = 0, chip = 0, freq = 0;
     gpu.param(kParamGpuId, &id);
     gpu.param(kParamChipId, &chip);

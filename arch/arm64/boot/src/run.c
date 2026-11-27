@@ -207,6 +207,9 @@ run_kernel(int have_checkpoint, uint64_t checkpoint)
 	}
 	if (battery_requested) {
 		charger_start();
+	} else if (PLAT->uefi_bq28z610 && charger_enabled) {
+		bq28z610_stop();
+		charger_enabled = 0;
 	}
 	if (ufs_requested >= 2) {
 		hc_init();              /* (ufs_native=: UEFI's transfer list kept, before anything reads) */

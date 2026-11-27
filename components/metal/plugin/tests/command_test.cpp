@@ -185,6 +185,7 @@ TEST(copies_outside_a_buffer_and_unaligned_fills_are_refused) {
     cb->waitUntilCompleted();
     CHECK(cb->status() == CommandBuffer::kError);
     CHECK(!cb->error().empty());
+    CHECK_EQ(cb->gpuNanoseconds(), 0);
     CHECK_EQ(handled.load(), 1);
     CHECK_EQ(r.fake->stats().submits, 0u);    // nothing of it reached the GPU
     auto cb2 = r.queue->commandBuffer();
@@ -207,6 +208,7 @@ TEST(handlers_run_in_commit_order_while_the_gpu_is_behind) {
         });
         cb->commit();
         CHECK(cb->status() == CommandBuffer::kScheduled);   // committed and handed over, the GPU not done
+        CHECK_EQ(cb->gpuNanoseconds(), 0);
         all.push_back(cb);
     }
     r.fake->resume();

@@ -157,9 +157,12 @@ struct BoUse {
 // the surface buffers command.cpp's surfaceBuffer keeps past their last user for GPU, let go (before GPU itself goes)
 void forgetSurfaceBuffers(const class Gpu* gpu);
 
+namespace a6xx { struct DeviceProfile; }
+
 class Gpu {
 public:
-    explicit Gpu(std::unique_ptr<Transport> transport) : t_(std::move(transport)) {}
+    enum class ProbeMode { kOff, kA660Memory, kA660Compute, kA660Blit, kA660Draw, kA660Gmem, kA660Compositor };
+    explicit Gpu(std::unique_ptr<Transport> transport, ProbeMode probeMode = ProbeMode::kOff);
     // (after every CommandQueue over it is gone: QueueHold)
     ~Gpu();
 
@@ -182,6 +185,13 @@ public:
     int param(uint32_t which, uint64_t* value);
     // the chip id without the speed bin above it: 0x06030500 on the phone, 0 if the driver does not say
     uint32_t chipId();
+    const a6xx::DeviceProfile* profile() const { return profile_; }
+    bool usesVerifiedCommandTables() const;
+    bool canDispatchCompute() const;
+    bool canClearAndBlit() const;
+    bool canDraw() const;
+    bool canUseGmem() const;
+    bool usesA660CompositorProbe() const;
     // how many times the kernel has reset a hung GPU in this run (0 when it cannot say)
     uint64_t faults();
 
@@ -234,6 +244,8 @@ private:
     std::atomic<uint64_t> allocated_{0};
     void release(Bo& bo);
     std::unique_ptr<Transport> t_;
+    const a6xx::DeviceProfile* const profile_;
+    const ProbeMode probeMode_;
 };
 
 }  // namespace hakios::metal

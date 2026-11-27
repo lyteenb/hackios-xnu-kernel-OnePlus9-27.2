@@ -633,6 +633,7 @@ bool CommandBuffer::dispatchIndirect(const Kernel& k, const Buffer& args, uint64
 
 bool CommandBuffer::dispatchAny(const Kernel& k, const uint32_t* groups, const Buffer* args, uint64_t offset, const uint32_t* local,
                                 const Bindings& bindings, const uint32_t* immediates, const compute::Options& options) {
+    if (!queue_.gpu().canDispatchCompute()) return fail("compute dispatch needs verified GPU command tables");
     if (status_ > kEnqueued) {
         return fail("dispatch after commit");
     }
@@ -663,9 +664,11 @@ bool CommandBuffer::dispatchAny(const Kernel& k, const uint32_t* groups, const B
         b = &withScratch;
     }
     pm4::Stream added;
+    auto encodeOptions = options;
+    if (queue_.gpu().usesA660CompositorProbe()) encodeOptions.tail = false;
     const bool encoded = args != nullptr ? compute::encodeIndirect(added, k, args->gpuAddress() + offset, loc, *b, immediates, program, table.gpuAddress(),
-                                                                   table.contents(), &why, options)
-                                         : compute::encode(added, k, groups, loc, *b, immediates, program, table.gpuAddress(), table.contents(), &why, options);
+                                                                   table.contents(), &why, encodeOptions)
+                                         : compute::encode(added, k, groups, loc, *b, immediates, program, table.gpuAddress(), table.contents(), &why, encodeOptions);
     if (!encoded) {
         return refuseWork(why);
     }

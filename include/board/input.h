@@ -87,6 +87,7 @@ struct hakios_battery_state {
 	 * writes them: what a source leaves here is not looked at.
 	 */
 	int32_t minutes_to_empty, minutes_to_full;
+	uint32_t direct_gauge;          /* authoritative pack SOC and charge status */
 };
 void hakios_battery_report(const struct hakios_battery_state *state);
 void hakios_net_init(void);            /* en0, if there is something to carry its frames: sys/board/net.h */
@@ -138,6 +139,7 @@ void hakios_gpu_space(uint64_t *used, uint32_t *live, uint64_t *largest, unsigne
 extern uint32_t gpu_va;                 /* boot-arg gpu_va: 0 as before, 1 describe the addresses, 2 also guard them */
 bool hakios_gpu_map(uint64_t address, uint64_t phys, bool read_only);
 void hakios_gpu_mapped(void);
+bool hakios_gpu_watched(uint64_t address, uint64_t size);
 /* false: the SMMU's TLB did not say it had forgotten them -- the pages are to stay the GPU's, not go back */
 bool hakios_gpu_unmap(uint64_t address, uint64_t size);
 void hakios_gpu_to_memory(void *start, uint64_t size);

@@ -174,6 +174,28 @@ three_keys(void)
 	no_write();
 }
 
+static void
+volume_up_on_resin(void)
+{
+	static struct hakios_board reversed;
+
+	phone("phone-cmd");
+	reversed = *found;
+	reversed.buttons.volume_down = reversed.buttons.volume_up;
+	reversed.buttons.volume_down_name = reversed.buttons.volume_up_name;
+	reversed.buttons.volume_up = 0;
+	reversed.buttons.volume_up_name = NULL;
+	found = &reversed;
+	boot_args = "buttons=1";
+	hakios_buttons_init();
+	WAIT_FOR(logged("step 5: watching power volume-up volume-down"), 3000);
+	CHECK(logged("step 5: watching power volume-up volume-down"), "all three keys are watched: %s", log_text);
+	press_and_release(power_down, pon_up, HAKIOS_BUTTON_LOCK, "power");
+	press_and_release(volume_down_down, pon_up, HAKIOS_BUTTON_VOLUME_UP, "RESIN volume up");
+	press_and_release(volume_up_down, volume_up_up, HAKIOS_BUTTON_VOLUME_DOWN, "GPIO volume down");
+	no_write();
+}
+
 /* the pin's only channel is another system's: reading takes no channel of one's own, so it is read
  * through that one (and nothing is written through it) */
 static void
@@ -709,7 +731,7 @@ int
 main(int argc, char **argv)
 {
 	static const struct { const char *name; void (*run)(void); } scenarios[] = {
-		{ "three_keys", three_keys }, { "only_another_systems_channel", only_another_systems_channel }, { "another_wiring", another_wiring }, { "with_the_touch_screen", with_the_touch_screen }, { "off_when_told", off_when_told },
+		{ "three_keys", three_keys }, { "volume_up_on_resin", volume_up_on_resin }, { "only_another_systems_channel", only_another_systems_channel }, { "another_wiring", another_wiring }, { "with_the_touch_screen", with_the_touch_screen }, { "off_when_told", off_when_told },
 		{ "not_with_the_touch_screen_off", not_with_the_touch_screen_off }, { "two_held_at_start", two_held_at_start },
 		{ "power_held_at_start", power_held_at_start },
 		{ "held_at_start", held_at_start }, { "one_look_is_not_a_press", one_look_is_not_a_press },

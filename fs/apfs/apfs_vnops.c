@@ -718,6 +718,17 @@ apfs_vnop_read(struct vnop_read_args *ap)
 	return error;
 }
 
+static void
+apfs_pagein_error(struct vnop_pagein_args *ap, int error)
+{
+	char name[MAXCOMLEN + 1] = "";
+
+	proc_selfname(name, sizeof(name));
+	printf("apfs: pagein error %d in %s inode %llu offset %lld bytes %u flags %#x\n",
+	    error, name, (unsigned long long)APFS_VP(ap->a_vp)->an_id,
+	    (long long)ap->a_f_offset, (unsigned)ap->a_size, (unsigned)ap->a_flags);
+}
+
 /*
  * Page in.  Everything goes through apfs_read_file rather than the cluster layer: a
  * compressed file has no block mapping at all, and a plain one is read out of the extents
@@ -753,6 +764,7 @@ apfs_vnop_pagein(struct vnop_pagein_args *ap)
 		}
 	}
 	if (error) {
+		apfs_pagein_error(ap, error);
 		if (!(ap->a_flags & UPL_NOCOMMIT)) {
 			ubc_upl_abort_range(upl, upl_offset, (upl_size_t)ap->a_size,
 			    UPL_ABORT_FREE_ON_EMPTY | UPL_ABORT_ERROR);
@@ -819,6 +831,9 @@ apfs_vnop_pagein(struct vnop_pagein_args *ap)
 	os_atomic_add(&am->am_pagein_ticks, apfs_ticks() - t0, relaxed);
 	os_atomic_inc(&am->am_pagein_calls, relaxed);
 	os_atomic_add(&am->am_pagein_bytes, (uint64_t)ap->a_size, relaxed);
+	if (error) {
+		apfs_pagein_error(ap, error);
+	}
 	if (!(ap->a_flags & UPL_NOCOMMIT)) {
 		if (error) {
 			ubc_upl_abort_range(upl, upl_offset, (upl_size_t)ap->a_size,

@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "hakios-metal/compute.hpp"
+#include "hakios-metal/device_profile.hpp"
 #include "hakios-metal/kernel.hpp"
 #include "hakios-metal/pm4.hpp"
 
@@ -499,6 +500,7 @@ static_assert(alignof(Options) == 1, "render::Options holds bools and bytes only
 // (kTileMaxW), as tall as the GMEM below the CCU's colour cache holds (kGmemCcuColorOffset), balanced so the last
 // row and column are not slivers.
 struct GmemPlan {
+    a6xx::DeviceProfile profile = a6xx::kA635Profile;
     // Where in GMEM each colour attachment's bin lies (RB_MRT's BASE_GMEM) and how much room it has there: GMEM below
     // the CCU's colour cache shared out by bytes a pixel. Fixed when the pass opens -- the draws are encoded with it --
     // while the bins' size waits for the render area at its end (gmemTiles).
@@ -520,7 +522,8 @@ struct GmemPlan {
 // (4 bytes a pixel), an RGBA16Float one and the path mask (8 and 4), and draws into the first two: shared among all
 // three, the first screen's bin was a quarter of GMEM and the bins 32 rows tall, 56 of them, where a third and 48 rows
 // do -- 38. False with *why otherwise (the pass then runs in sysmem, as before).
-bool gmemPlan(const RenderPass& pass, GmemPlan* plan, std::string* why, uint32_t likely = ~0u);
+bool gmemPlan(const RenderPass& pass, GmemPlan* plan, std::string* why, uint32_t likely = ~0u,
+              const a6xx::DeviceProfile& profile = a6xx::kA635Profile);
 // the attachments a draw of PROGRAM writes or reads in PASS (drawnAttachments and its framebuffer fetches), as a mask
 uint32_t gmemNeeds(const Program& program, const RenderPass& pass);
 // PLAN's bins over the render area AREA (X0 Y0 X1 Y1 inclusive, inside the window): turnip's tiling of a render area
@@ -591,7 +594,8 @@ bool encode(pm4::Stream& stream, const Program& program, const RenderPass& pass,
 // tail into the pass's TABLE. encode is the three over one table.
 // (SKIP_CLEARS: colour attachments whose Clear a GMEM pass does in its tiles instead)
 bool encodeBegin(pm4::Stream& stream, const RenderPass& pass, uint64_t table, uint8_t* tableCpu, std::string* why,
-                 const Options& options = Options{}, uint32_t skipClears = 0);
+                 const Options& options = Options{}, uint32_t skipClears = 0,
+                 const a6xx::DeviceProfile& profile = a6xx::kA635Profile);
 // (GMEM: the pass's plan when it is drawn in tiles -- the attachments' bins in RB_MRT's BASE_GMEM, a framebuffer fetch
 // reading its bin in GMEM; nullptr in sysmem. AFTER_FETCH: the draw before it in the pass read its attachments too, so
 // in raster order a fetch needs no barrier)
@@ -604,7 +608,7 @@ void encodeEnd(pm4::Stream& stream, const RenderPass& pass, uint64_t table, cons
 // A pass with no draw: the batch start, the pass begin, the Clear's fill, the tail. What -[MTLRenderCommandEncoder
 // endEncoding] needs for an encoder that recorded nothing; any load action but kClear is refused (nothing to write).
 bool encodeClear(pm4::Stream& stream, const RenderPass& pass, uint64_t table, uint8_t* tableCpu, std::string* why,
-                 const Options& options = Options{});
+                 const Options& options = Options{}, const a6xx::DeviceProfile& profile = a6xx::kA635Profile);
 
 // A rectangle of a texture's level: X, Y its top left, W x H its size in pixels
 struct BlitRect {
@@ -618,14 +622,16 @@ struct BlitRect {
 // generateMipmaps does it, and an unfiltered copy moves the stored bytes. False with *why: a level or a rectangle outside the texture, a depth
 // texture, another format, a linear scale of an integer format, a texture copied into the very rectangle it is read from.
 bool encodeBlit(pm4::Stream& stream, const Texture& src, uint32_t srcLevel, BlitRect s, const Texture& dst, uint32_t dstLevel, BlitRect d, bool linear,
-                uint64_t table, uint8_t* tableCpu, std::string* why, const Options& o = Options{});
+                uint64_t table, uint8_t* tableCpu, std::string* why, const Options& o = Options{},
+                const a6xx::DeviceProfile& profile = a6xx::kA635Profile);
 
 // LENGTH bytes from GPU address FROM to TO, at any alignment, by the 2D engine: what the command processor, which moves
 // words, cannot do (turnip's copy_buffer with a block of one byte). Each piece is one row of R8_UNORM texels -- the
 // unorm round trip gives every byte back as it was -- whose source and destination are addressed from 64 bytes below
 // (what SP_PS_2D_SRC and RB_2D_DST take), the rest of the way being the rectangle's x, at most 0x4000 texels from there.
 // The two ranges must not overlap, as Metal asks of a copy. A pass of its own, with what it wrote in memory at its end.
-void encodeBytes(pm4::Stream& stream, uint64_t from, uint64_t to, uint64_t length, uint64_t table, uint8_t* tableCpu, const Options& o = Options{});
+void encodeBytes(pm4::Stream& stream, uint64_t from, uint64_t to, uint64_t length, uint64_t table, uint8_t* tableCpu,
+                 const Options& o = Options{}, const a6xx::DeviceProfile& profile = a6xx::kA635Profile);
 
 }  // namespace render
 

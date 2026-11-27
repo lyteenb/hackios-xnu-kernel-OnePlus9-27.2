@@ -19,25 +19,16 @@ Apple 的 IPSW、rootfs、cryptex、系统镜像、厂商固件或设备身份�
 另外，[lyteenb/hackios-xnu-kernel](https://github.com/lyteenb/hackios-xnu-kernel) 是 b1ackm4x 上游在
 Windows 下的复现和验证参考，不计入这两个上游。
 
-源码快照对应 `hakios-27.2-lemonade` 分支的提交 `8a61f288`。本仓库只整理公开可提交的内容；
-上游仓库仍是这些代码的权威来源。
+本仓库维护 OnePlus 9 的公开源码快照、设备配置和复现说明。
 
 ## 当前状态
 
-截至 2026-11-24，已完成并在本机验证：
+OnePlus 9 LE2110 可通过 USB RAM 启动 Darwin 27.2 到 SpringBoard。实验配置已在同一次启动中
+观察到 Adreno 660 硬件提交、S6SY792 触控初始化、三个 PMIC 按键的物理事件和 BQ28Z610 有效电量。
+Wi-Fi、蓝牙和持久化写入保持关闭。
 
-| 项目 | 状态 |
-| --- | --- |
-| QEMU | 使用 24B119 系统镜像启动到真实 Darwin 锁屏 |
-| OnePlus 9 真机 | RAM boot 到达 SpringBoard |
-| 触控 | S6SY792 物理触控可用：`scan 0x62`、`report 0x10`、1080 × 2400、10 点 |
-| CPU 频率 | 两组 CPU 频率分别达到 2419 MHz / 2841 MHz |
-| 软件渲染 | 稳定窗口记录到 `301 frames / 5002 ms`（约 60 FPS） |
-| GPU 内核侧 | Adreno 660 内核服务启动到 `THE 3D CORE WRITES OUR MEMORY ON COMMAND` |
-| A660 Metal | **未完成**；27.2 `HakiosMetal` 仍只接受 A635 `0x06030500`，拒绝 A660 `0x06060001` |
-
-这里区分四种不同的验证结论：**能编译**、**通过主机测试**、**QEMU 能启动**、**真机能启动并可用**。
-本仓库不会把前一种结论写成后一种结论。
+[状态页](docs/STATUS.md)记录本次数值和验收范围。[复现步骤](docs/REPRODUCE.md)说明所需私有输入、
+A660 插件和离线组包流程。
 
 ## 目标平台
 
@@ -57,23 +48,11 @@ ADB 授权和数据备份。这里不包含绕过厂商限制或设备安全的�
 
 请按自己的设备准备并核对 UEFI、DTB、firmware 和 serial hash，不要直接套用维护者设备的数据。
 
-## 已验证 / 未完成
+## 实验配置
 
-### 已验证
-
-- Darwin 27.2 的 dyld shared cache、Apple `launchd`、`backboardd` 和 `SpringBoard` 能达到。
-- OnePlus 9 的 display/backlight 路径能输出 SpringBoard 画面。
-- S6SY792 触控能初始化并上报物理触点。
-- EPSS CPU 频率配置能提高两组 CPU 频率。
-- 在 GPU/Metal 关闭、CPU 频率开启时，软件渲染 UI 达到约 60 FPS。
-- Adreno 660 内核 GPU 路径能启动；但用户态 Metal 兼容层尚未覆盖 A660。
-
-### 未完成或未验收
-
-- Adreno 660 的 Metal 用户态表、shader 路径和完整 CoreAnimation 加速。
-- Wi-Fi、Bluetooth、蜂窝、ADSP、音频、摄像头、传感器、电池、按键和充电状态。
-- UFS 持久化写入、可保存设置、睡眠/唤醒、温控和长期稳定性。
-- 所有“日常使用”场景，包括通话、联网、相机、应用商店和长时间运行。
+- A660 使用线性 sysmem 路径，允许 backboardd 和 SpringBoard 提交 Metal 工作。
+- 电源键、音量上和音量下通过 PMIC 读取。完整触控手势、锁屏和调音量等界面行为需要在真机上逐项验收。
+- 电池由 loader 的 BQ28Z610 采样路径提供。实际充电、长期运行和其他外设的范围见 [已知限制](docs/LIMITATIONS.md)。
 
 ## 仓库结构
 

@@ -31,6 +31,7 @@ $mkpayload = Need-File (Join-Path $Repo 'arch\arm64\boot\mkpayload.py') 'mkpaylo
 $mkboot = Need-File (Join-Path $Repo 'arch\arm64\boot\mkboot.py') 'mkboot.py'
 $imagePy = Need-File (Join-Path $Repo 'tools\image.py') 'tools/image.py'
 $launcher = Need-File (Join-Path $Repo 'tools\windows\launch_ramboot.py') 'launch_ramboot.py'
+$startCmd = Need-File (Join-Path $Repo 'tools\windows\Start-iOS.cmd') 'Start-iOS.cmd'
 $Uefi = (Resolve-Path -LiteralPath $Uefi).Path
 
 if ($HardwareSerialSha256 -notmatch '^[0-9a-fA-F]{64}$') {
@@ -63,6 +64,7 @@ Copy-Item -LiteralPath $root -Destination (Join-Path $Out 'root.apfs') -Force
 Copy-Item -LiteralPath $system -Destination (Join-Path $Out 'system.apfs') -Force
 Copy-Item -LiteralPath $mkpayload -Destination (Join-Path $Out 'mkpayload.py') -Force
 Copy-Item -LiteralPath $launcher -Destination (Join-Path $Out 'launch.py') -Force
+Copy-Item -LiteralPath $startCmd -Destination (Join-Path $Out 'Start-iOS.cmd') -Force
 
 $startLines = @(
     '$python = (Get-Command python -ErrorAction Stop).Source',
@@ -81,6 +83,7 @@ $readme = @(
     'This package contains Apple-derived system files and the phone UEFI files. Do not publish or redistribute it.',
     '',
     '```powershell',
+    '.\Start-iOS.cmd',
     '.\Start.ps1',
     '.\Return-to-Android.ps1',
     'python .\launch.py verify',

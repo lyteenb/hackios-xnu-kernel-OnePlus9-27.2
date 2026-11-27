@@ -6,3 +6,5 @@
 
 # Written by a tool (make docs), not by hand: collapsed in a review, not counted as a language.
 Documentation/boot-args.md linguist-generated
+
+tools/windows/Start-iOS.cmd text eol=crlf

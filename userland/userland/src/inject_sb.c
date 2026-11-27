@@ -243,8 +243,8 @@ snapshot_output_format(__unused id self, __unused SEL selector, id snapshot)
  * Darwin reads battery level through UIDevice.batteryLevel and UIDevice.batteryState; SpringBoard's
  * status bar reads it the same way via SBBatteryController. Where the battery has no power source
  * of its own in the kernel (battery=1, the loader's way through Qualcomm's UEFI charger protocols),
- * we hook the UIDevice accessors to return what XNU publishes as kern.redwood.battery_soc (0..100)
- * and kern.redwood.battery_charging.
+ * we hook the UIDevice accessors to return the kernel's battery_soc (0..100)
+ * and battery_charging sysctls for this build.
  * When the sysctl is missing (battery=1 not in boot-args, or the driver never started) we hand
  * back the value the real implementation computed; the status bar then shows whatever Darwin last
  * knew, which is better than crashing.
@@ -285,11 +285,17 @@ battery_power_source(void)
 	return found;
 }
 
+#ifdef HAKIOS_IOS27
+#define BATTERY_SYSCTL_PREFIX "kern.hakios.battery_"
+#else
+#define BATTERY_SYSCTL_PREFIX "kern.redwood.battery_"
+#endif
+
 /* UIDevice.batteryLevel: 0.0..1.0; -1.0 if monitoring not enabled */
 static float
 battery_level(id self, SEL sel)
 {
-	int soc = sysctl_int("kern.redwood.battery_soc");
+	int soc = sysctl_int(BATTERY_SYSCTL_PREFIX "soc");
 
 	if (soc < 0 || soc > 100 || battery_power_source()) {
 		return original_battery_level ? original_battery_level(self, sel) : -1.0f;
@@ -301,10 +307,10 @@ battery_level(id self, SEL sel)
 static long
 battery_state(id self, SEL sel)
 {
-	int charging = sysctl_int("kern.redwood.battery_charging");
-	int present = sysctl_int("kern.redwood.battery_present");
-	int plugged = sysctl_int("kern.redwood.battery_charger_present");
-	int soc = sysctl_int("kern.redwood.battery_soc");
+	int charging = sysctl_int(BATTERY_SYSCTL_PREFIX "charging");
+	int present = sysctl_int(BATTERY_SYSCTL_PREFIX "present");
+	int plugged = sysctl_int(BATTERY_SYSCTL_PREFIX "charger_present");
+	int soc = sysctl_int(BATTERY_SYSCTL_PREFIX "soc");
 
 	if (charging == -1 || present == -1 || plugged == -1 || soc < 0 || soc > 100 || battery_power_source()) {
 		return original_battery_state ? original_battery_state(self, sel) : 0;
@@ -322,7 +328,7 @@ battery_state(id self, SEL sel)
 static BOOL
 battery_view_shows_percentage(id self, SEL sel)
 {
-	int soc = sysctl_int("kern.redwood.battery_soc");
+	int soc = sysctl_int(BATTERY_SYSCTL_PREFIX "soc");
 
 	if (soc >= 0 && soc <= 100 && !battery_power_source()) return YES;
 	return original_battery_view_shows_percentage ? original_battery_view_shows_percentage(self, sel) : NO;
@@ -331,7 +337,7 @@ battery_view_shows_percentage(id self, SEL sel)
 static void
 battery_view_set_shows_percentage(id self, SEL sel, BOOL shows)
 {
-	int soc = sysctl_int("kern.redwood.battery_soc");
+	int soc = sysctl_int(BATTERY_SYSCTL_PREFIX "soc");
 
 	original_battery_view_set_shows_percentage(self, sel, (soc >= 0 && soc <= 100 && !battery_power_source()) ? YES : shows);
 }
@@ -339,9 +345,9 @@ battery_view_set_shows_percentage(id self, SEL sel, BOOL shows)
 static BOOL
 battery_view_should_show_bolt(id self, SEL sel)
 {
-	int charging = sysctl_int("kern.redwood.battery_charging");
-	int present = sysctl_int("kern.redwood.battery_present");
-	int plugged = sysctl_int("kern.redwood.battery_charger_present");
+	int charging = sysctl_int(BATTERY_SYSCTL_PREFIX "charging");
+	int present = sysctl_int(BATTERY_SYSCTL_PREFIX "present");
+	int plugged = sysctl_int(BATTERY_SYSCTL_PREFIX "charger_present");
 
 	if (charging != -1 && present != -1 && plugged != -1 && !battery_power_source()) return charging && present && plugged;
 	return original_battery_view_should_show_bolt ? original_battery_view_should_show_bolt(self, sel) : NO;
@@ -357,7 +363,7 @@ battery_view_should_show_bolt(id self, SEL sel)
 static double
 battery_view_charge_percent(id self, SEL sel)
 {
-	int soc = sysctl_int("kern.redwood.battery_soc");
+	int soc = sysctl_int(BATTERY_SYSCTL_PREFIX "soc");
 
 	if (soc >= 0 && soc <= 100 && !battery_power_source()) return (double)soc / 100.0;
 	return original_battery_view_charge_percent ? original_battery_view_charge_percent(self, sel) : 0.0;
@@ -366,7 +372,7 @@ battery_view_charge_percent(id self, SEL sel)
 static void
 battery_view_set_charge_percent(id self, SEL sel, double p)
 {
-	int soc = sysctl_int("kern.redwood.battery_soc");
+	int soc = sysctl_int(BATTERY_SYSCTL_PREFIX "soc");
 
 	original_battery_view_set_charge_percent(self, sel, (soc >= 0 && soc <= 100 && !battery_power_source()) ? (double)soc / 100.0 : p);
 }
@@ -375,7 +381,7 @@ battery_view_set_charge_percent(id self, SEL sel, double p)
 static double
 ring_charging_level(id self, SEL sel)
 {
-	int soc = sysctl_int("kern.redwood.battery_soc");
+	int soc = sysctl_int(BATTERY_SYSCTL_PREFIX "soc");
 
 	if (soc >= 0 && soc <= 100 && !battery_power_source()) return (double)soc / 100.0;
 	return original_ring_charging_level ? original_ring_charging_level(self, sel) : 0.0;
@@ -403,19 +409,93 @@ battery_post_notifications(void)
 	});
 }
 
+#ifdef HAKIOS_IOS27
+extern CFTypeRef IOPSCopyPowerSourcesInfo(void);
+extern CFArrayRef IOPSCopyPowerSourcesList(CFTypeRef snapshot);
+extern int IOPSGetPercentRemaining(int *percent, bool *charging, bool *full);
+
+static void
+battery_iops_probe(void)
+{
+	int percent = -1;
+	bool charging = false, full = false;
+	const int result = IOPSGetPercentRemaining(&percent, &charging, &full);
+	CFTypeRef snapshot = IOPSCopyPowerSourcesInfo();
+	CFArrayRef sources = snapshot ? IOPSCopyPowerSourcesList(snapshot) : NULL;
+
+	say("hakios: SpringBoard IOPS result=%#x sources=%ld percent=%d charging=%d full=%d\n",
+	    (unsigned)result, sources ? (long)CFArrayGetCount(sources) : 0L, percent, charging, full);
+	if (sources) {
+		CFRelease(sources);
+	}
+	if (snapshot) {
+		CFRelease(snapshot);
+	}
+}
+#endif
+
 /* ---- the lock screen's clock without a GPU ------------------------------------------------------- */
 
 #define HAKIOS_GL "/hakios/lib/libhakios-gl.dylib"
 
-/* Does the window server draw with OpenGL ES? The same question, asked the same way, as opengl_es() in inject.c. */
+static bool
+gpu_service_exists(void)
+{
+	io_service_t gpu = IOServiceGetMatchingService(0, IOServiceMatching("HakiosGPU"));
+
+	if (gpu != 0) {
+		IOObjectRelease(gpu);
+	}
+	return gpu != 0;
+}
+
+#ifdef HAKIOS_IOS27
+/*
+ * The 27.2 window server uses the registered Metal plug-in. SpringBoard
+ * itself need not be allowed to open the Metal device.
+ */
+static bool
+metal_compositor_available(void)
+{
+	const char *bundle = "/System/Library/Extensions/HakiosMetal.bundle/HakiosMetal";
+	if (access(bundle, R_OK) != 0) {
+		return false;
+	}
+	io_service_t accelerator = IOServiceGetMatchingService(0, IOServiceMatching("IOAcceleratorES"));
+	if (accelerator == 0) {
+		return false;
+	}
+	CFTypeRef name = IORegistryEntryCreateCFProperty(accelerator, CFSTR("MetalPluginName"),
+            kCFAllocatorDefault, 0);
+	CFTypeRef type = IORegistryEntryCreateCFProperty(accelerator, CFSTR("MetalPluginClassName"),
+            kCFAllocatorDefault, 0);
+	bool registered = name != NULL && type != NULL &&
+            CFEqual(name, CFSTR("HakiosMetal")) && CFEqual(type, CFSTR("HakiosMetalDevice"));
+
+	if (name != NULL) {
+		CFRelease(name);
+	}
+	if (type != NULL) {
+		CFRelease(type);
+	}
+	IOObjectRelease(accelerator);
+	return registered && gpu_service_exists();
+}
+#endif
+
 static bool
 gpu_draws(void)
 {
 	char arguments[1024] = "";
 	size_t size = sizeof(arguments) - 1;
 	const char *argument;
-	io_service_t gpu;
 
+#ifdef HAKIOS_IOS27
+	if (metal_compositor_available()) {
+		say("hakios: SpringBoard: preserving vibrancy with the registered Metal compositor\n");
+		return true;
+	}
+#endif
 	if (access(HAKIOS_GL, R_OK) != 0) {
 		return false;
 	}
@@ -426,11 +506,7 @@ gpu_draws(void)
 			}
 		}
 	}
-	gpu = IOServiceGetMatchingService(0, IOServiceMatching("HakiosGPU"));
-	if (gpu != 0) {
-		IOObjectRelease(gpu);
-	}
-	return gpu != 0;
+	return gpu_service_exists();
 }
 
 /*
@@ -1507,9 +1583,19 @@ hakios_springboard_init(void)
 			}
 		}
 		say("hakios: battery: SOC=%d%% battery=%d charger=%d charging=%d\n",
-	    sysctl_int("kern.redwood.battery_soc"), sysctl_int("kern.redwood.battery_present"),
-	    sysctl_int("kern.redwood.battery_charger_present"), sysctl_int("kern.redwood.battery_charging"));
+	    sysctl_int(BATTERY_SYSCTL_PREFIX "soc"), sysctl_int(BATTERY_SYSCTL_PREFIX "present"),
+	    sysctl_int(BATTERY_SYSCTL_PREFIX "charger_present"), sysctl_int(BATTERY_SYSCTL_PREFIX "charging"));
 		battery_post_notifications();
+#ifdef HAKIOS_IOS27
+		if (boot_arg_is_set("battery_probe=1")) {
+			dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+			for (int seconds = 5; seconds <= 35; seconds += 15) {
+				dispatch_after(dispatch_time(DISPATCH_TIME_NOW, seconds * NSEC_PER_SEC), queue, ^{
+					battery_iops_probe();
+				});
+			}
+		}
+#endif
 	});
 	notify_register_dispatch("com.hakios.unlock", &token, dispatch_get_main_queue(), ^(__unused int t) {
 		unlock();

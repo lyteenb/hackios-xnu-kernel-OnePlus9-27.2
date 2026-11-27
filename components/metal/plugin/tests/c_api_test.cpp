@@ -572,8 +572,9 @@ TEST(c_api_program_and_draw) {
         return;
     }
     CHECK(!vsBc.empty() && !fsBc.empty());
-    // the program: tri_flat's two stages linked for RGBA8Unorm (70); its name and its empty resource tables
-    hakios_metal_program* p = hakios_metal_program_new_bitcode(vsBc.data(), vsBc.size(), fsBc.data(), fsBc.size(), 70);
+    // The device selects the compiler for tri_flat's two stages.
+    hakios_metal_program* p = hakios_metal_program_new_bitcode_for_device(d, vsBc.data(), vsBc.size(), nullptr, 0,
+                                                                         fsBc.data(), fsBc.size(), nullptr, 0, 70);
     CHECK(p != nullptr);
     if (p == nullptr) {
         std::printf("       %s\n", hakios_metal_error());

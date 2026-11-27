@@ -103,6 +103,9 @@ typedef struct hakios_metal_constant {
 } hakios_metal_constant;
 hakios_metal_kernel *hakios_metal_kernel_compile_bitcode_constants(const void *bitcode, size_t size,
     const hakios_metal_constant *constants, unsigned count);
+/* Select the compiler from DEVICE's GPU profile. */
+hakios_metal_kernel *hakios_metal_kernel_compile_bitcode_for_device(hakios_metal_device *device, const void *bitcode,
+    size_t size, const hakios_metal_constant *constants, unsigned count);
 void hakios_metal_kernel_free(hakios_metal_kernel *kernel);
 const char *hakios_metal_kernel_name(hakios_metal_kernel *kernel);
 /* the argument buffer at [[buffer(SET)]] of the function in BITCODE, as MTLFunction's -newArgumentEncoderWithBufferIndex:
@@ -301,6 +304,15 @@ hakios_metal_program *hakios_metal_program_new_bitcode_linked(const void *vs_bit
     const hakios_metal_constant *vs_constants, unsigned vs_count, const void *fs_bitcode, size_t fs_size,
     const hakios_metal_constant *fs_constants, unsigned fs_count, const hakios_metal_linked *linked, unsigned count,
     unsigned color_pixel_format);
+/* DEVICE's target is retained for later pipeline specialization. */
+hakios_metal_program *hakios_metal_program_new_bitcode_for_device(hakios_metal_device *device,
+    const void *vs_bitcode, size_t vs_size, const hakios_metal_constant *vs_constants, unsigned vs_count,
+    const void *fs_bitcode, size_t fs_size, const hakios_metal_constant *fs_constants, unsigned fs_count,
+    unsigned color_pixel_format);
+hakios_metal_program *hakios_metal_program_new_bitcode_linked_for_device(hakios_metal_device *device,
+    const void *vs_bitcode, size_t vs_size, const hakios_metal_constant *vs_constants, unsigned vs_count,
+    const void *fs_bitcode, size_t fs_size, const hakios_metal_constant *fs_constants, unsigned fs_count,
+    const hakios_metal_linked *linked, unsigned count, unsigned color_pixel_format);
 /* BASE again with its fragment stage (FS_BITCODE and FS_CONSTANTS, as BASE was made) compiled for the LENGTH BYTES its
  * constant buffer at [[buffer(BINDING)]] holds (compileStage's KnownBuffer): the branches those bytes decide are decided
  * at compile time. Draws whose buffer holds exactly these bytes may use it in BASE's place; BASE's blending, vertex

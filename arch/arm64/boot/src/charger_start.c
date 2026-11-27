@@ -6,7 +6,17 @@ charger_start(void)
 	static const efi_guid qcom_charger_guid = QCOM_CHARGER_GUID;
 	efi_status ex_status, qcom_status, init_status = 0;
 
-	if (charger_enabled || !PLAT->uefi_charger) {
+	if (!PLAT->uefi_charger) {
+		return;
+	}
+	if (PLAT->uefi_bq28z610) {
+		if (!charger_enabled) {
+			charger_enabled = bq28z610_start();
+		}
+		charger_poll();
+		return;
+	}
+	if (charger_enabled) {
 		return;
 	}
 	ex_status = BS->locate_protocol(&charger_ex_guid, NULL, (void **)&CHARGER_EX);

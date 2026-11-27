@@ -22,7 +22,6 @@
 #include "ir3/ir3_shader.h"
 #include "common/freedreno_dev_info.h"
 #include "util/ralloc.h"
-#include "hakios-metal/a6xx.hpp"
 #endif
 
 namespace hakios::metal {
@@ -36,14 +35,14 @@ LinkedScope::~LinkedScope() { tLinked = std::move(saved_); }
 
 #ifndef HAKIOS_METAL_MESA
 
-bool hasCompiler() { return false; }
+bool hasCompiler(uint32_t) { return false; }
 
-std::unique_ptr<CompiledKernel> compileAir(const void*, size_t, std::string* why, const FunctionConstants&) {
+std::unique_ptr<CompiledKernel> compileAir(const void*, size_t, std::string* why, const FunctionConstants&, uint32_t) {
     *why = "no compiler in this build: it is linked in with MESA_BUILD= (tools/compiler.mk), and was not";
     return nullptr;
 }
 
-std::unique_ptr<CompiledStage> compileStage(const void*, size_t, std::string* why, const FunctionConstants&, uint32_t, const KnownBuffer*) {
+std::unique_ptr<CompiledStage> compileStage(const void*, size_t, std::string* why, const FunctionConstants&, uint32_t, const KnownBuffer*, uint32_t) {
     *why = "no compiler in this build: it is linked in with MESA_BUILD= (tools/compiler.mk), and was not";
     return nullptr;
 }
@@ -77,10 +76,12 @@ namespace {
 // one thread compiles is what the same compilation alone makes: sweep -j compares them word for word.
 struct ThreadCompiler {
     ir3_compiler* compiler = nullptr;
-    ThreadCompiler() {
+    explicit ThreadCompiler(const a6xx::DeviceProfile& profile) {
         fd_dev_id id{};
-        id.gpu_id = 0;
-        id.chip_id = a6xx::kChipId;
+        id.gpu_id = profile.mesaGpuId;
+        id.chip_id = profile.mesaGpuId == 0 ? profile.chipId : 0;
+        const struct fd_dev_info* info = fd_dev_info_raw(&id);
+        if (info == nullptr) return;
         // A framebuffer fetch (nir_texop_txf_ms_fb) through the FS's own texture table, at the slot after its last
         // texture, as turnip has it (tu_device.cc: -1): the zero default would make it a bindless read of descriptor
         // set 0, which this driver never binds
@@ -89,17 +90,34 @@ struct ThreadCompiler {
         // the GLSL type cache, which ir3 uses for the driver UBOs' types (get_driver_ubo_type: a module's constant table
         // is read through one); a reference for each compiler, given back with it
         glsl_type_singleton_init_or_ref();
-        compiler = ir3_compiler_create(nullptr, &id, fd_dev_info_raw(&id), &options);
+        compiler = ir3_compiler_create(nullptr, &id, info, &options);
+        if (compiler == nullptr) glsl_type_singleton_decref();
     }
     ~ThreadCompiler() {
-        if (compiler != nullptr) ir3_compiler_destroy(compiler);
-        glsl_type_singleton_decref();
+        if (compiler != nullptr) {
+            ir3_compiler_destroy(compiler);
+            glsl_type_singleton_decref();
+        }
     }
 };
 
-ir3_compiler* theCompiler() {
-    thread_local ThreadCompiler mine;   // (made at a thread's first compilation, gone with the thread)
-    return mine.compiler;
+ir3_compiler* theCompiler(uint32_t chipId = a6xx::kChipId) {
+    const auto* profile = a6xx::profileForChip(chipId);
+    if (profile == &a6xx::kA635Profile) {
+        thread_local ThreadCompiler a635(*profile);
+        return a635.compiler;
+    }
+    if (profile == &a6xx::kA660Profile) {
+        thread_local ThreadCompiler a660(*profile);
+        return a660.compiler;
+    }
+    return nullptr;
+}
+
+std::string noCompilerFor(uint32_t chipId) {
+    char message[64];
+    std::snprintf(message, sizeof(message), "ir3 has no compiler for chip %#010x", chipId);
+    return message;
 }
 
 bool refuse(std::string* why, const std::string& text) {
@@ -265,7 +283,8 @@ struct Translation {
     ir3_shader_variant* v = nullptr;
     uint32_t* bin = nullptr;              // the assembled binary (ralloc'd under the variant)
     uint8_t fbTargets[kMaxTextureSlots] = {};   // lowerFbRead's slots: n + 1 where colour attachment n is read
-    Translation() = default;
+    const uint32_t chipId;
+    explicit Translation(uint32_t target = a6xx::kChipId) : chipId(target) {}
     Translation(const Translation&) = delete;
     Translation& operator=(const Translation&) = delete;
     ~Translation() {
@@ -328,7 +347,7 @@ bool translatedAgain(uint64_t key, Translation& t) {
         for (const KeptTranslation& k : gKept) {
             if (k.key != key) continue;
             t.nir = nir_shader_clone(t.mem, k.nir);
-            t.nir->options = ir3_get_compiler_options(theCompiler());   // (this thread's compiler's: the kept one's may be gone)
+            t.nir->options = ir3_get_compiler_options(theCompiler(t.chipId));   // (this thread's compiler's: the kept one's may be gone)
             t.info = k.info;
             return true;
         }
@@ -403,6 +422,7 @@ bool translate(const void* bitcode, size_t size, Translation& t, std::string* wh
             for (char ch : l.name) key = (key ^ uint8_t(ch)) * 0x100000001b3ull;
         }
         key ^= size;
+        key = (key ^ t.chipId) * 0x100000001b3ull;
         if (translatedAgain(key, t)) {
             phase("air_to_nir (a copy)");
         }
@@ -428,7 +448,7 @@ bool translate(const void* bitcode, size_t size, Translation& t, std::string* wh
         options.linked = linked.empty() ? nullptr : linked.data();
         options.num_linked = unsigned(linked.size());
         const char* error = nullptr;
-        t.nir = air_to_nir(mem, bitcode, size, nullptr, &options, ir3_get_compiler_options(theCompiler()), &t.info, &error);
+        t.nir = air_to_nir(mem, bitcode, size, nullptr, &options, ir3_get_compiler_options(theCompiler(t.chipId)), &t.info, &error);
         if (t.nir == nullptr) {
             if (mem != t.mem) {
                 doneTranslating(key, nullptr);
@@ -849,7 +869,7 @@ bool usesSubgroup(nir_shader* nir) {
 }
 
 bool compileVariant(Translation& t, PassOrder order, std::string* why) {
-    ir3_compiler* compiler = theCompiler();
+    ir3_compiler* compiler = theCompiler(t.chipId);
     nir_shader* nir = t.nir;
     // what the consumer owes before ir3: the front end emits NIR's own system values, as the SPIR-V one does
     nir_lower_system_values(nir);
@@ -1253,14 +1273,15 @@ const char* className(uint8_t element) { return element == kElemFloat ? "floats"
 
 }  // namespace
 
-bool hasCompiler() { return theCompiler() != nullptr; }
+bool hasCompiler(uint32_t chipId) { return theCompiler(chipId) != nullptr; }
 
-std::unique_ptr<CompiledKernel> compileAir(const void* bitcode, size_t size, std::string* why, const FunctionConstants& constants) {
-    if (theCompiler() == nullptr) {
-        refuse(why, "ir3 has no compiler for chip 0x06030500");
+std::unique_ptr<CompiledKernel> compileAir(const void* bitcode, size_t size, std::string* why,
+                                           const FunctionConstants& constants, uint32_t chipId) {
+    if (theCompiler(chipId) == nullptr) {
+        refuse(why, noCompilerFor(chipId));
         return nullptr;
     }
-    Translation t;
+    Translation t(chipId);
     if (!translate(bitcode, size, t, why, constants)) return nullptr;
     if (t.nir->info.stage != MESA_SHADER_COMPUTE) {
         refuse(why, std::string(t.info.entry_point ? t.info.entry_point : "the function") +
@@ -1284,7 +1305,7 @@ std::unique_ptr<CompiledKernel> compileAir(const void* bitcode, size_t size, std
 
 namespace {
 std::unique_ptr<CompiledStage> compileStageOnce(const void* bitcode, size_t size, std::string* why, const FunctionConstants& constants, uint32_t iboBase,
-                                                const KnownBuffer* known);
+                                                const KnownBuffer* known, uint32_t chipId);
 }  // namespace
 
 // A stage compiled as turnip compiles it, unless that spills: ir3's preamble pass hoists what is uniform into a
@@ -1584,12 +1605,15 @@ bool knownBufferControlBytes(const void* bitcode, size_t size, const FunctionCon
 }
 
 std::unique_ptr<CompiledStage> compileStage(const void* bitcode, size_t size, std::string* why, const FunctionConstants& constants, uint32_t iboBase,
-                                           const KnownBuffer* known) {
-    if (theCompiler() == nullptr) {
-        refuse(why, "ir3 has no compiler for chip 0x06030500");
+                                           const KnownBuffer* known, uint32_t chipId) {
+    ir3_compiler* compiler = theCompiler(chipId);
+    if (compiler == nullptr) {
+        refuse(why, noCompilerFor(chipId));
         return nullptr;
     }
-    const std::string name = stageCacheName(bitcode, size, constants, iboBase, known);
+    // The existing disk and seed cache was produced for A635.
+    const std::string name = chipId == a6xx::kChipId
+        ? stageCacheName(bitcode, size, constants, iboBase, known) : std::string{};
     const std::string cached = stageCacheWritable(name);
     if (!cached.empty()) {
         if (std::unique_ptr<CompiledStage> s = stageCacheLoad(cached, false)) return s;
@@ -1604,15 +1628,15 @@ std::unique_ptr<CompiledStage> compileStage(const void* bitcode, size_t size, st
             if (std::unique_ptr<CompiledStage> s = stageCacheLoad(dir + name, true)) return s;
         }
     }
-    std::unique_ptr<CompiledStage> with = compileStageOnce(bitcode, size, why, constants, iboBase, known);
+    std::unique_ptr<CompiledStage> with = compileStageOnce(bitcode, size, why, constants, iboBase, known, chipId);
     std::unique_ptr<CompiledStage> chosen;
-    if (with == nullptr || with->stage.k.pvtmemSize == 0 || !theCompiler()->has_preamble) {
+    if (with == nullptr || with->stage.k.pvtmemSize == 0 || !compiler->has_preamble) {
         chosen = std::move(with);
     } else {
-        theCompiler()->has_preamble = false;
+        compiler->has_preamble = false;
         std::string whyNot;
-        std::unique_ptr<CompiledStage> without = compileStageOnce(bitcode, size, &whyNot, constants, iboBase, known);
-        theCompiler()->has_preamble = true;
+        std::unique_ptr<CompiledStage> without = compileStageOnce(bitcode, size, &whyNot, constants, iboBase, known, chipId);
+        compiler->has_preamble = true;
         chosen = without != nullptr && preferWithoutPreamble(with->stage.k, without->stage.k) ? std::move(without) : std::move(with);
     }
     if (chosen != nullptr && !cached.empty()) stageCacheSave(cached, *chosen);
@@ -1623,8 +1647,8 @@ std::unique_ptr<CompiledStage> compileStage(const void* bitcode, size_t size, st
 
 namespace {
 std::unique_ptr<CompiledStage> compileStageOnce(const void* bitcode, size_t size, std::string* why, const FunctionConstants& constants, uint32_t iboBase,
-                                                const KnownBuffer* known) {
-    Translation t;
+                                                const KnownBuffer* known, uint32_t chipId) {
+    Translation t(chipId);
     if (!translate(bitcode, size, t, why, constants, known)) return nullptr;
     // the stage is the module's named metadata (air.vertex / air.fragment / air.kernel: air_to_nir.c module_stage)
     const std::string name = t.info.entry_point ? t.info.entry_point : "the function";
@@ -1871,7 +1895,7 @@ bool argumentBufferLayout(const void* bitcode, size_t size, uint32_t set, std::v
     air_to_nir_options options{};
     options.interface_only = true;
     const char* error = nullptr;
-    t.nir = air_to_nir(t.mem, bitcode, size, nullptr, &options, ir3_get_compiler_options(theCompiler()), &t.info, &error);
+    t.nir = air_to_nir(t.mem, bitcode, size, nullptr, &options, ir3_get_compiler_options(theCompiler(t.chipId)), &t.info, &error);
     if (t.nir == nullptr) return refuse(why, std::string("the front end refused its interface: ") + (error ? error : "no reason given"));
     members->clear();
     for (unsigned i = 0; i < t.info.num_resources; i++) {
